@@ -1,13 +1,21 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { getBuildInfo } from "./build-info.js";
+import { createDb } from "./db/client.js";
 import { loadEnv } from "./env.js";
 import { createLogger } from "./logger.js";
 
 const env = loadEnv();
 const logger = createLogger(env);
 const buildInfo = getBuildInfo(env);
-const app = createApp({ logger, buildInfo });
+const { ping } = createDb(env.DATABASE_URL);
+const app = createApp({ logger, buildInfo, checkDatabase: ping });
+
+// Warn, don't abort: a scaled-to-zero Neon compute may still be waking up.
+ping().then((ok) => {
+  if (ok) logger.info("database reachable");
+  else logger.warn("database not reachable at startup");
+});
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   logger.info(

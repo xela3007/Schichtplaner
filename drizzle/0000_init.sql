@@ -1,0 +1,2 @@
+-- 0000_init: intentionally empty (ADR-004).
+-- Establishes the migration history; the first domain slice adds tables.

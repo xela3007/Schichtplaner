@@ -3,10 +3,15 @@ import { describe, expect, it } from "vitest";
 import { HealthResponse } from "#shared/health.js";
 import { createApp } from "./app.js";
 
-const app = createApp({
-  logger: pino({ level: "silent" }),
-  buildInfo: { version: "1.2.3", commit: "abc123", startedAt: new Date() },
-});
+function makeApp(databaseOk = true) {
+  return createApp({
+    logger: pino({ level: "silent" }),
+    buildInfo: { version: "1.2.3", commit: "abc123", startedAt: new Date() },
+    checkDatabase: async () => databaseOk,
+  });
+}
+
+const app = makeApp();
 
 describe("GET /health", () => {
   it("returns 200 with a schema-valid body and a request id", async () => {
@@ -26,6 +31,18 @@ describe("GET /health", () => {
       headers: { "X-Request-Id": "req-42" },
     });
     expect(res.headers.get("X-Request-Id")).toBe("req-42");
+  });
+});
+
+describe("GET /health with database down", () => {
+  it("returns 503 degraded with a schema-valid body", async () => {
+    const res = await makeApp(false).request("/health");
+    expect(res.status).toBe(503);
+    const body = HealthResponse.parse(await res.json());
+    expect(body).toMatchObject({
+      status: "degraded",
+      checks: { database: "error" },
+    });
   });
 });
 

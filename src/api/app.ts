@@ -7,11 +7,12 @@ import { healthRoutes } from "./routes/health.js";
 export type AppDeps = {
   logger: Logger;
   buildInfo: BuildInfo;
+  checkDatabase: () => Promise<boolean>;
 };
 
 type AppEnv = { Variables: { requestId: string; log: Logger } };
 
-export function createApp({ logger, buildInfo }: AppDeps) {
+export function createApp({ logger, buildInfo, checkDatabase }: AppDeps) {
   const app = new Hono<AppEnv>();
 
   app.use(requestId());
@@ -32,7 +33,7 @@ export function createApp({ logger, buildInfo }: AppDeps) {
     );
   });
 
-  app.route("/", healthRoutes(buildInfo));
+  app.route("/", healthRoutes({ buildInfo, checkDatabase }));
 
   app.notFound((c) =>
     c.json({ error: "not_found", requestId: c.get("requestId") }, 404),

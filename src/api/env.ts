@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+// Messages must never echo the value — connection strings carry passwords.
+const postgresUrl = z
+  .string({ error: "is required" })
+  .refine((value) => /^postgres(ql)?:\/\/\S+$/.test(value), {
+    error: "must be a postgres:// or postgresql:// URL",
+  });
+
 export const EnvSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -9,6 +16,8 @@ export const EnvSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace"])
     .default("info"),
   GIT_COMMIT_SHA: z.string().min(1).optional(),
+  DATABASE_URL: postgresUrl,
+  DATABASE_URL_UNPOOLED: postgresUrl.optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
