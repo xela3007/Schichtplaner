@@ -25,6 +25,9 @@ describe("parseEnv", () => {
       JWT_SECRET: JWT,
       WEB_APP_URL: "http://localhost:5173",
       TRUST_PROXY: false,
+      CORS_ORIGINS: [],
+      COOKIE_SAMESITE: "lax",
+      HOST: "::",
     });
   });
 
@@ -66,5 +69,22 @@ describe("parseEnv", () => {
     expect(error.issues.map((i) => i.variable)).toContain("JWT_SECRET");
     expect(error.message).not.toContain("short");
     expect(parseEnv({ ...BASE, TRUST_PROXY: "true" }).TRUST_PROXY).toBe(true);
+  });
+
+  it("parses CORS_ORIGINS as a URL list and rejects garbage", () => {
+    expect(
+      parseEnv({
+        ...BASE,
+        CORS_ORIGINS: "https://a.example, https://b.example",
+      }).CORS_ORIGINS,
+    ).toEqual(["https://a.example", "https://b.example"]);
+    const error = errorOf(() =>
+      parseEnv({ ...BASE, CORS_ORIGINS: "not-a-url" }),
+    );
+    expect(error.issues.map((i) => i.variable)).toContain("CORS_ORIGINS");
+    const sameSite = errorOf(() =>
+      parseEnv({ ...BASE, COOKIE_SAMESITE: "strict" }),
+    );
+    expect(sameSite.issues.map((i) => i.variable)).toContain("COOKIE_SAMESITE");
   });
 });

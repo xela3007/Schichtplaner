@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TokenResponse } from "#shared/auth.js";
+import { type CookiePolicy, cookiePolicy } from "../auth/cookies.js";
 import { hashPassword } from "../auth/password.js";
 import { makeTestApp } from "../test-support/fakes.js";
 
@@ -270,8 +271,8 @@ describe("refresh / logout", () => {
 });
 
 describe("cookie attributes per environment", () => {
-  it("production: SameSite=None + Secure on set and on clear", async () => {
-    const ctx = makeTestApp({ secureCookies: true });
+  async function cookieHeaders(policy: CookiePolicy) {
+    const ctx = makeTestApp({ cookiePolicy: policy });
     const user = {
       id: "01a1b4ea-7b22-7679-af8a-a22acdbb9467",
       email: "ada@example.org",
@@ -284,11 +285,54 @@ describe("cookie attributes per environment", () => {
       (await ctx.app.request("/auth/logout", { method: "POST" })).headers.get(
         "set-cookie",
       ) ?? "";
-    for (const header of [set, cleared]) {
-      expect(header).toMatch(/SameSite=None/);
+    return [set, cleared];
+  }
+
+  it("production same-origin: SameSite=Lax + Secure on set and on clear", async () => {
+    for (const header of await cookieHeaders(cookiePolicy(true, "lax"))) {
+      expect(header).toMatch(/SameSite=Lax/);
       expect(header).toMatch(/Secure/);
       expect(header).toMatch(/HttpOnly/);
       expect(header).toMatch(/Path=\/auth/);
     }
+  });
+
+  it("SameSite=None always forces Secure, also outside production", async () => {
+    for (const header of await cookieHeaders(cookiePolicy(false, "none"))) {
+      expect(header).toMatch(/SameSite=None/);
+      expect(header).toMatch(/Secure/);
+    }
+  });
+
+  it("local dev: Lax without Secure", async () => {
+    for (const header of await cookieHeaders(cookiePolicy(false, "lax"))) {
+      expect(header).toMatch(/SameSite=Lax/);
+      expect(header).not.toMatch(/Secure/);
+    }
+  });
+});
+
+describe("CORS", () => {
+  it("no CORS headers when the allowlist is empty (same-origin default)", async () => {
+    const { app } = makeTestApp();
+    const res = await app.request("/health", {
+      headers: { Origin: "https://evil.example" },
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("echoes only allowlisted origins, with credentials", async () => {
+    const { app } = makeTestApp({ corsOrigins: ["https://app.example"] });
+    const ok = await app.request("/health", {
+      headers: { Origin: "https://app.example" },
+    });
+    expect(ok.headers.get("access-control-allow-origin")).toBe(
+      "https://app.example",
+    );
+    expect(ok.headers.get("access-control-allow-credentials")).toBe("true");
+    const evil = await app.request("/health", {
+      headers: { Origin: "https://evil.example" },
+    });
+    expect(evil.headers.get("access-control-allow-origin")).toBeNull();
   });
 });

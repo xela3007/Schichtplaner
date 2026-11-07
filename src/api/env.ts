@@ -28,6 +28,21 @@ export const EnvSchema = z.object({
     .enum(["true", "false"], { error: 'must be "true" or "false"' })
     .default("false")
     .transform((value) => value === "true"),
+  CORS_ORIGINS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(z.url({ error: "must be a comma-separated list of URLs" }))),
+  COOKIE_SAMESITE: z
+    .enum(["lax", "none"], { error: 'must be "lax" or "none"' })
+    .default("lax"),
+  // Railway's private network is IPv6 — "::" accepts IPv4 and IPv6 (ADR-014).
+  HOST: z.string().min(1).default("::"),
   SEED_USER_EMAIL: z.email({ error: "must be an email address" }).optional(),
   SEED_USER_PASSWORD: z
     .string()

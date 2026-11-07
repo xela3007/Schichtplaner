@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { createClientIpResolver } from "./auth/client-ip.js";
+import { cookiePolicy } from "./auth/cookies.js";
 import { DbRateLimiter } from "./auth/rate-limit.js";
 import { DrizzleAuthRepository } from "./auth/repository.js";
 import { getBuildInfo } from "./build-info.js";
@@ -33,7 +34,11 @@ const app = createApp({
     mailer,
     jwtSecret: env.JWT_SECRET,
     webAppUrl: env.WEB_APP_URL,
-    secureCookies: env.NODE_ENV === "production",
+    cookiePolicy: cookiePolicy(
+      env.NODE_ENV === "production",
+      env.COOKIE_SAMESITE,
+    ),
+    corsOrigins: env.CORS_ORIGINS,
     clientIp: createClientIpResolver(env.TRUST_PROXY),
   },
 });
@@ -44,12 +49,15 @@ ping().then((ok) => {
   else logger.warn("database not reachable at startup");
 });
 
-const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
-  logger.info(
-    { port: info.port, version: buildInfo.version, commit: buildInfo.commit },
-    "server started",
-  );
-});
+const server = serve(
+  { fetch: app.fetch, port: env.PORT, hostname: env.HOST },
+  (info) => {
+    logger.info(
+      { port: info.port, version: buildInfo.version, commit: buildInfo.commit },
+      "server started",
+    );
+  },
+);
 
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {

@@ -1,0 +1,74 @@
+# Rendered by the nginx image's envsubst step at container start. Only defined
+# env vars (${PORT}, ${API_INTERNAL_URL}) are replaced; nginx's own $variables
+# stay untouched.
+
+# Browser page navigations ask for HTML; fetch() asks for JSON (ADR-007).
+map $http_accept $spa_navigation {
+  default 0;
+  "~text/html" 1;
+}
+
+# Railway's edge sets X-Real-IP to the client address. Forward exactly that
+# one value so the API's rate limits key on the real client, not on nginx and
+# not on a client-supplied X-Forwarded-For.
+map $http_x_real_ip $client_ip {
+  default $http_x_real_ip;
+  "" $remote_addr;
+}
+
+server {
+  listen ${PORT};
+  listen [::]:${PORT};
+  server_tokens off;
+  root /usr/share/nginx/html;
+
+  # Railway private DNS (IPv6). Resolving at request time means nginx starts
+  # even while the api service is still booting.
+  resolver [fd12::10] valid=10s ipv6=on;
+  set $api_upstream ${API_INTERNAL_URL};
+
+  location = /web-health {
+    access_log off;
+    default_type text/plain;
+    return 200 "ok\n";
+  }
+
+  # --- API endpoints (exact list, same as the Vite dev proxy) ---------------
+  location ~ ^/(health|me|reference)$ {
+    proxy_pass $api_upstream;
+    include /etc/nginx/api-proxy.conf;
+  }
+
+  location ~ ^/auth/(signup|login|refresh|logout)$ {
+    proxy_pass $api_upstream;
+    include /etc/nginx/api-proxy.conf;
+  }
+
+  # Page AND API route: the mail link opens the SPA, the SPA's fetch hits the API.
+  location = /auth/verify-email {
+    if ($spa_navigation) {
+      rewrite ^ /index.html last;
+    }
+    proxy_pass $api_upstream;
+    include /etc/nginx/api-proxy.conf;
+  }
+
+  # --- Static app --------------------------------------------------------------
+  location /assets/ {
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    try_files $uri =404;
+  }
+
+  location = /index.html {
+    add_header Cache-Control "no-cache";
+  }
+
+  location = /config.js {
+    add_header Cache-Control "no-cache";
+  }
+
+  # SPA fallback: client routes are not files.
+  location / {
+    try_files $uri /index.html;
+  }
+}

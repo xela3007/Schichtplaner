@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+# API image (ADR-009/014): multi-stage, devDependencies stay in the build stage.
+FROM node:24-alpine AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.base.json tsconfig.json ./
+COPY src/api ./src/api
+COPY src/shared ./src/shared
+RUN npx tsc -p tsconfig.json && npm prune --omit=dev
+
+FROM node:24-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY drizzle ./drizzle
+# Unprivileged user (ADR-009)
+USER node
+CMD ["node", "dist/api/server.js"]

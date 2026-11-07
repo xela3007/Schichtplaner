@@ -1,0 +1,25 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile.web",
+    "watchPatterns": [
+      "/src/web/**",
+      "/src/shared/**",
+      "/deploy/nginx/**",
+      "/package.json",
+      "/package-lock.json",
+      "/tsconfig.base.json",
+      "/tsconfig.web.json",
+      "/vite.config.ts",
+      "/Dockerfile.web",
+      "/railway.web.json"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/web-health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}

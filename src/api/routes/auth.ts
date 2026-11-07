@@ -1,6 +1,7 @@
 import { type Context, Hono } from "hono";
 import { LoginRequest, SignupRequest, TokenResponse } from "#shared/auth.js";
 import {
+  type CookiePolicy,
   clearRefreshCookie,
   readRefreshCookie,
   setRefreshCookie,
@@ -15,15 +16,11 @@ import { parseJson } from "../validation.js";
 
 export type AuthRouteDeps = {
   service: AuthService;
-  secureCookies: boolean;
+  cookiePolicy: CookiePolicy;
   clientIp: (c: Context) => string;
 };
 
-export function authRoutes({
-  service,
-  secureCookies,
-  clientIp,
-}: AuthRouteDeps) {
+export function authRoutes({ service, cookiePolicy, clientIp }: AuthRouteDeps) {
   const app = new Hono<AppEnv>();
 
   const tokenBody = (session: Session) =>
@@ -81,26 +78,26 @@ export function authRoutes({
         403,
       );
     }
-    setRefreshCookie(c, result.session.refreshToken, secureCookies);
+    setRefreshCookie(c, result.session.refreshToken, cookiePolicy);
     return c.json(tokenBody(result.session), 200);
   });
 
   app.post("/refresh", async (c) => {
     const result = await service.refresh(readRefreshCookie(c));
     if (result.kind === "unauthorized") {
-      clearRefreshCookie(c, secureCookies);
+      clearRefreshCookie(c, cookiePolicy);
       return c.json(
         { error: "unauthorized", requestId: c.get("requestId") },
         401,
       );
     }
-    setRefreshCookie(c, result.session.refreshToken, secureCookies);
+    setRefreshCookie(c, result.session.refreshToken, cookiePolicy);
     return c.json(tokenBody(result.session), 200);
   });
 
   app.post("/logout", async (c) => {
     await service.logout(readRefreshCookie(c));
-    clearRefreshCookie(c, secureCookies);
+    clearRefreshCookie(c, cookiePolicy);
     return c.body(null, 204);
   });
 

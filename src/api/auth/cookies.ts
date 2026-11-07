@@ -5,26 +5,45 @@ import { REFRESH_TOKEN_TTL_SECONDS } from "./tokens.js";
 
 export const REFRESH_COOKIE = "rt";
 
-/**
- * ADR-005: SameSite=None + Secure in production (frontend and API on separate
- * domains), Lax locally. Set and clear MUST share these attributes, otherwise
- * the browser ignores the deletion.
- */
-export function refreshCookieOptions(secure: boolean): CookieOptions {
-  return secure
-    ? { httpOnly: true, path: "/auth", secure: true, sameSite: "None" }
-    : { httpOnly: true, path: "/auth", secure: false, sameSite: "Lax" };
+export type CookiePolicy = { secure: boolean; sameSite: "Lax" | "None" };
+
+/** Production behind the same-origin web container (ADR-014) vs. local dev. */
+export function cookiePolicy(
+  production: boolean,
+  sameSite: "lax" | "none",
+): CookiePolicy {
+  // SameSite=None is only valid together with Secure.
+  return sameSite === "none"
+    ? { secure: true, sameSite: "None" }
+    : { secure: production, sameSite: "Lax" };
 }
 
-export function setRefreshCookie(c: Context, token: string, secure: boolean) {
+/**
+ * ADR-005: set and clear MUST share these attributes, otherwise the browser
+ * ignores the deletion.
+ */
+export function refreshCookieOptions(policy: CookiePolicy): CookieOptions {
+  return {
+    httpOnly: true,
+    path: "/auth",
+    secure: policy.secure,
+    sameSite: policy.sameSite,
+  };
+}
+
+export function setRefreshCookie(
+  c: Context,
+  token: string,
+  policy: CookiePolicy,
+) {
   setCookie(c, REFRESH_COOKIE, token, {
-    ...refreshCookieOptions(secure),
+    ...refreshCookieOptions(policy),
     maxAge: REFRESH_TOKEN_TTL_SECONDS,
   });
 }
 
-export function clearRefreshCookie(c: Context, secure: boolean) {
-  deleteCookie(c, REFRESH_COOKIE, refreshCookieOptions(secure));
+export function clearRefreshCookie(c: Context, policy: CookiePolicy) {
+  deleteCookie(c, REFRESH_COOKIE, refreshCookieOptions(policy));
 }
 
 export function readRefreshCookie(c: Context): string | undefined {

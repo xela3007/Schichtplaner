@@ -1,6 +1,8 @@
 import { type Context, Hono } from "hono";
+import { cors } from "hono/cors";
 import { requestId } from "hono/request-id";
 import type { Logger } from "pino";
+import type { CookiePolicy } from "./auth/cookies.js";
 import { requireAuth } from "./auth/middleware.js";
 import type { RateLimiter } from "./auth/rate-limit.js";
 import type { AuthRepository } from "./auth/repository.js";
@@ -23,7 +25,8 @@ export type AppDeps = {
     mailer: Mailer;
     jwtSecret: string;
     webAppUrl: string;
-    secureCookies: boolean;
+    cookiePolicy: CookiePolicy;
+    corsOrigins: readonly string[];
     clientIp: (c: Context) => string;
   };
 };
@@ -49,6 +52,21 @@ export function createApp({ logger, buildInfo, checkDatabase, auth }: AppDeps) {
     );
   });
 
+  // ADR-009: CORS is an explicit allowlist, never "*". Empty list (the
+  // same-origin default, ADR-014) means no cross-origin access at all.
+  if (auth.corsOrigins.length > 0) {
+    const allowed = new Set(auth.corsOrigins);
+    app.use(
+      cors({
+        origin: (origin) => (allowed.has(origin) ? origin : null),
+        credentials: true,
+        allowMethods: ["GET", "POST", "OPTIONS"],
+        allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+        exposeHeaders: ["X-Request-Id", "Retry-After"],
+      }),
+    );
+  }
+
   const service = new AuthService(
     auth.repository,
     auth.rateLimiter,
@@ -63,7 +81,7 @@ export function createApp({ logger, buildInfo, checkDatabase, auth }: AppDeps) {
     "/auth",
     authRoutes({
       service,
-      secureCookies: auth.secureCookies,
+      cookiePolicy: auth.cookiePolicy,
       clientIp: auth.clientIp,
     }),
   );

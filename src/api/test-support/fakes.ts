@@ -1,6 +1,7 @@
 // In-memory stand-ins for tests — no database in CI (ADR-012).
 import { pino } from "pino";
 import { createApp } from "../app.js";
+import type { CookiePolicy } from "../auth/cookies.js";
 import type { RateLimiter } from "../auth/rate-limit.js";
 import type {
   AuthRepository,
@@ -109,7 +110,11 @@ export class CapturingMailer implements Mailer {
 }
 
 export function makeTestApp(
-  opts: { databaseOk?: boolean; secureCookies?: boolean } = {},
+  opts: {
+    databaseOk?: boolean;
+    cookiePolicy?: CookiePolicy;
+    corsOrigins?: string[];
+  } = {},
 ) {
   const repository = new InMemoryAuthRepository();
   const rateLimiter = new InMemoryRateLimiter();
@@ -124,7 +129,8 @@ export function makeTestApp(
       mailer,
       jwtSecret: TEST_SECRET,
       webAppUrl: "http://web.test",
-      secureCookies: opts.secureCookies ?? false,
+      cookiePolicy: opts.cookiePolicy ?? { secure: false, sameSite: "Lax" },
+      corsOrigins: opts.corsOrigins ?? [],
       clientIp: () => "203.0.113.7",
     },
   });
