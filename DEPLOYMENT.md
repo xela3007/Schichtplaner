@@ -15,58 +15,93 @@ Browser ──HTTPS──▶ Railway Edge (TLS) ──▶ web  (nginx, öffentli
                                      Neon Postgres (Branch je Umgebung)
 ```
 
-- Ein Railway-Projekt `schichtplaner`, Environments **staging** und **production**
-- Service **web**: `Dockerfile.web`, Konfiguration `railway.web.json`, einzige
-  öffentliche Adresse. nginx liefert die App aus und reicht genau die
-  API-Endpunkte an `api` weiter → Frontend und API haben dieselbe Origin
-- Service **api**: `Dockerfile.api`, Konfiguration `railway.api.json`, ohne
-  öffentliche Domain. Vor jedem Deploy läuft `node dist/api/scripts/migrate.js`
-  (Pre-Deploy). Schlägt das fehl, bleibt die alte Version online
-- Watch-Paths in den beiden `railway.*.json` sorgen dafür, dass ein reiner
+- Ein Railway-Projekt `schichtplaner`, Environments **staging** und **production**,
+  Region EU West (Amsterdam)
+- Service **web**: `Dockerfile.web`, einzige öffentliche Adresse. nginx liefert
+  die App aus und reicht genau die API-Endpunkte an `api` weiter → Frontend und
+  API haben dieselbe Origin
+- Service **api**: `Dockerfile.api`, ohne öffentliche Domain. Vor jedem Deploy
+  läuft `node dist/api/scripts/migrate.js` (Pre-Deploy). Schlägt das fehl,
+  bleibt die alte Version online
+- Builder, Dockerfile, Watch-Paths, Pre-Deploy, Health-Checks, Restart-Policy,
+  Branch und Region stehen in **`.railway/railway.ts`** (Railway
+  Infrastructure as Code). Watch-Paths sorgen dafür, dass ein reiner
   Frontend-Commit nur `web` deployt und umgekehrt; `src/shared/**` deployt beide
+
+| Umgebung   | Adresse                                      | Branch       |
+| ---------- | -------------------------------------------- | ------------ |
+| staging    | https://web-staging-dfb8.up.railway.app      | `main`       |
+| production | https://web-production-fc782d.up.railway.app | `production` |
+
+## Infrastruktur ändern
+
+Änderungen an Services gehören in `.railway/railway.ts`, nicht in die
+Oberfläche. Pro Umgebung erst ansehen, dann übernehmen:
+
+```bash
+railway config plan --environment staging
+```
+
+```bash
+railway config apply --environment staging
+```
+
+Danach dasselbe mit `--environment production`. `plan` ändert nichts.
+Variablen verwaltet die Datei bewusst **nicht** (`variables: { managed: false }`)
+— Secrets bleiben ausschließlich in Railway.
+
+Die früheren Dateien `railway.api.json` / `railway.web.json` („Config as Code“)
+nutzt Railway für neue Services nicht mehr; sie sind entfernt.
 
 ## Umgebungsvariablen
 
 ### api
 
-| Variable                | staging                                  | production                                | Hinweis                                             |
-| ----------------------- | ---------------------------------------- | ----------------------------------------- | --------------------------------------------------- |
-| `NODE_ENV`              | `production`                             | `production`                              |                                                     |
-| `DATABASE_URL`          | Neon `staging`, pooled                   | Neon `production`, pooled                 | Secret                                              |
-| `DATABASE_URL_UNPOOLED` | Neon `staging`, direkt                   | Neon `production`, direkt                 | Secret, für Migrationen                             |
-| `JWT_SECRET`            | zufällig, 48 Byte                        | zufällig, 48 Byte, **anders als staging** | Secret                                              |
-| `WEB_APP_URL`           | `https://${{web.RAILWAY_PUBLIC_DOMAIN}}` | dito                                      | Ziel des Bestätigungslinks                          |
-| `TRUST_PROXY`           | `true`                                   | `true`                                    | Client-IP aus `X-Forwarded-For` (von nginx gesetzt) |
-| `COOKIE_SAMESITE`       | `lax`                                    | `lax`                                     | gleiche Origin (ADR-014)                            |
-| `CORS_ORIGINS`          | leer                                     | leer                                      | keine fremden Origins                               |
-| `LOG_LEVEL`             | `info`                                   | `info`                                    |                                                     |
+| Variable                  | staging                                  | production                                | Hinweis                                             |
+| ------------------------- | ---------------------------------------- | ----------------------------------------- | --------------------------------------------------- |
+| `NODE_ENV`                | `production`                             | `production`                              |                                                     |
+| `DATABASE_URL`            | Neon `staging`, pooled                   | Neon `production`, pooled                 | Secret                                              |
+| `DATABASE_URL_UNPOOLED`   | Neon `staging`, direkt                   | Neon `production`, direkt                 | Secret, für Migrationen                             |
+| `JWT_SECRET`              | zufällig, 48 Byte                        | zufällig, 48 Byte, **anders als staging** | Secret                                              |
+| `WEB_APP_URL`             | `https://${{web.RAILWAY_PUBLIC_DOMAIN}}` | dito                                      | Ziel des Bestätigungslinks                          |
+| `TRUST_PROXY`             | `true`                                   | `true`                                    | Client-IP aus `X-Forwarded-For` (von nginx gesetzt) |
+| `COOKIE_SAMESITE`         | `lax`                                    | `lax`                                     | gleiche Origin (ADR-014)                            |
+| `CORS_ORIGINS`            | leer                                     | leer                                      | keine fremden Origins                               |
+| `LOG_LEVEL`               | `info`                                   | `info`                                    |                                                     |
+| `PORT`                    | `3000`                                   | `3000`                                    | fest, damit `web` die API adressieren kann          |
+| `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.api`                         | `Dockerfile.api`                          | Rückfallebene, doppelt zu `.railway/railway.ts`     |
 
-`PORT` und `RAILWAY_GIT_COMMIT_SHA` setzt Railway selbst. `HOST` ist im Code
-auf `::` vorbelegt (privates Netz ist IPv6).
+`RAILWAY_GIT_COMMIT_SHA` setzt Railway selbst. `HOST` ist im Code auf `::`
+vorbelegt (privates Netz ist IPv6). `PORT` muss explizit gesetzt sein: Railways
+eigenes, zur Laufzeit vergebenes `PORT` lässt sich aus einem anderen Service
+nicht referenzieren — `${{api.PORT}}` wäre sonst leer.
 
 ### web
 
-| Variable           | Wert                                                   | Hinweis                                      |
-| ------------------ | ------------------------------------------------------ | -------------------------------------------- |
-| `API_INTERNAL_URL` | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}` | Ziel der Weiterleitung                       |
-| `API_BASE_URL`     | leer                                                   | landet in `config.js`; leer = gleiche Origin |
-| `PORT`             | `8080`                                                 |                                              |
+| Variable                  | Wert                                                   | Hinweis                                         |
+| ------------------------- | ------------------------------------------------------ | ----------------------------------------------- |
+| `API_INTERNAL_URL`        | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:${{api.PORT}}` | Ziel der Weiterleitung                          |
+| `API_BASE_URL`            | leer                                                   | landet in `config.js`; leer = gleiche Origin    |
+| `PORT`                    | `8080`                                                 |                                                 |
+| `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.web`                                       | Rückfallebene, doppelt zu `.railway/railway.ts` |
 
 Secrets stehen **nur** in Railway — nie im Repo, nie in der CI-Konfiguration.
 
 ## Einmalige Einstellungen in der Railway-Oberfläche
 
-Die CLI kann diese Punkte nicht setzen. Je Service (`api`, `web`) und je
-Environment:
+Nur beim ersten Aufsetzen nötig, heute erledigt:
 
-1. **Settings → Source → Connect Repo:** `xela3007/Schichtplaner`
-2. **Settings → Source → Branch:** staging → `main`, production → `production`
-3. **Settings → Source → Wait for CI:** einschalten (deployt erst nach grünem
-   Check `CI`)
-4. **Settings → Config-as-code → Railway Config File:** `railway.api.json` bzw.
-   `railway.web.json`
-5. Nur `web`: **Settings → Networking → Generate Domain** (Port 8080). `api`
-   bekommt **keine** öffentliche Domain
+1. Railway-Konto mit GitHub verbinden (Account Settings → Connected Accounts)
+2. Railway-GitHub-App auf `xela3007` installieren, Zugriff nur auf
+   `Schichtplaner` (`https://github.com/apps/railway-app/installations/new`)
+3. Je Service und Environment einmal **Settings → Source → Connect Repo**:
+   `xela3007/Schichtplaner`, **Wait for CI** an. Branch und alles Weitere setzt
+   danach `.railway/railway.ts`
+4. Öffentliche Domain nur für `web` (`railway domain --service web --port 8080`).
+   `api` bekommt **keine** öffentliche Domain
+
+Hinweis: Eine automatische Browser-Übersetzung verfälscht die Railway-Oberfläche
+(Projektname, „production“ → „Produktion“). Für railway.com abschalten.
 
 ## Release auf Production
 
