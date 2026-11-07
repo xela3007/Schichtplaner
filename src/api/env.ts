@@ -18,6 +18,21 @@ export const EnvSchema = z.object({
   GIT_COMMIT_SHA: z.string().min(1).optional(),
   DATABASE_URL: postgresUrl,
   DATABASE_URL_UNPOOLED: postgresUrl.optional(),
+  JWT_SECRET: z
+    .string({ error: "is required" })
+    .min(32, { error: "must be at least 32 characters" }),
+  PUBLIC_API_URL: z
+    .url({ error: "must be a URL" })
+    .default("http://localhost:3000"),
+  TRUST_PROXY: z
+    .enum(["true", "false"], { error: 'must be "true" or "false"' })
+    .default("false")
+    .transform((value) => value === "true"),
+  SEED_USER_EMAIL: z.email({ error: "must be an email address" }).optional(),
+  SEED_USER_PASSWORD: z
+    .string()
+    .min(12, { error: "must be at least 12 characters" })
+    .optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -8,6 +8,20 @@
       "when": 1794036098196,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794036624321,
+      "tag": "0001_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794036628210,
+      "tag": "0002_seed_rbac",
+      "breakpoints": true
     }
   ]
 }

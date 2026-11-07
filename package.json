@@ -22,7 +22,8 @@
     "build": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:seed:user": "tsx --env-file-if-exists=.env --conditions=development src/api/scripts/seed-user.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
@@ -36,9 +37,11 @@
   "dependencies": {
     "@hono/node-server": "^2.1.6",
     "@neondatabase/serverless": "^1.2.0",
+    "@node-rs/argon2": "^2.2.2",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.17",
     "pino": "^10.4.0",
+    "uuid": "^14.0.3",
     "zod": "^4.6.7"
   }
 }

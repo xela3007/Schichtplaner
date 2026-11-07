@@ -1,14 +1,9 @@
-import { pino } from "pino";
 import { describe, expect, it } from "vitest";
 import { HealthResponse } from "#shared/health.js";
-import { createApp } from "./app.js";
+import { makeTestApp } from "./test-support/fakes.js";
 
 function makeApp(databaseOk = true) {
-  return createApp({
-    logger: pino({ level: "silent" }),
-    buildInfo: { version: "1.2.3", commit: "abc123", startedAt: new Date() },
-    checkDatabase: async () => databaseOk,
-  });
+  return makeTestApp({ databaseOk }).app;
 }
 
 const app = makeApp();

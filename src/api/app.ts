@@ -1,18 +1,34 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { requestId } from "hono/request-id";
 import type { Logger } from "pino";
+import { requireAuth } from "./auth/middleware.js";
+import type { RateLimiter } from "./auth/rate-limit.js";
+import type { AuthRepository } from "./auth/repository.js";
+import { AuthService } from "./auth/service.js";
 import type { BuildInfo } from "./build-info.js";
+import type { Mailer } from "./mail/mailer.js";
+import { authRoutes } from "./routes/auth.js";
 import { healthRoutes } from "./routes/health.js";
+import { meRoutes } from "./routes/me.js";
+import { referenceRoutes } from "./routes/reference.js";
+import type { AppEnv } from "./types.js";
 
 export type AppDeps = {
   logger: Logger;
   buildInfo: BuildInfo;
   checkDatabase: () => Promise<boolean>;
+  auth: {
+    repository: AuthRepository;
+    rateLimiter: RateLimiter;
+    mailer: Mailer;
+    jwtSecret: string;
+    publicApiUrl: string;
+    secureCookies: boolean;
+    clientIp: (c: Context) => string;
+  };
 };
 
-type AppEnv = { Variables: { requestId: string; log: Logger } };
-
-export function createApp({ logger, buildInfo, checkDatabase }: AppDeps) {
+export function createApp({ logger, buildInfo, checkDatabase, auth }: AppDeps) {
   const app = new Hono<AppEnv>();
 
   app.use(requestId());
@@ -33,7 +49,28 @@ export function createApp({ logger, buildInfo, checkDatabase }: AppDeps) {
     );
   });
 
+  const service = new AuthService(
+    auth.repository,
+    auth.rateLimiter,
+    auth.mailer,
+    { jwtSecret: auth.jwtSecret, publicApiUrl: auth.publicApiUrl },
+    logger,
+  );
+  const authenticated = requireAuth(auth.jwtSecret);
+
   app.route("/", healthRoutes({ buildInfo, checkDatabase }));
+  app.route(
+    "/auth",
+    authRoutes({
+      service,
+      secureCookies: auth.secureCookies,
+      clientIp: auth.clientIp,
+    }),
+  );
+  app.use("/me", authenticated);
+  app.route("/", meRoutes(service));
+  app.use("/reference", authenticated);
+  app.route("/", referenceRoutes());
 
   app.notFound((c) =>
     c.json({ error: "not_found", requestId: c.get("requestId") }, 404),
