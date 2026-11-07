@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      - name: Lint & format (Biome)
+        run: npm run check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (Vitest)
+        run: npm test
+
+      - name: Build
+        run: npm run build

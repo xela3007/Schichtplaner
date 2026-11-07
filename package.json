@@ -1,0 +1,25 @@
+{
+  "name": "schichtplaner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "imports": {
+    "#shared/*": "./src/shared/*"
+  },
+  "scripts": {
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
