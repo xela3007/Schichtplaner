@@ -15,13 +15,19 @@ function cookieValue(res: Response): string | undefined {
   return res.headers.get("set-cookie")?.match(/rt=([^;]*)/)?.[1];
 }
 
+/** The mail links to the frontend page; the page calls this API route with the token. */
+function verifyPath(link: string): string {
+  const token = new URL(link).searchParams.get("token") ?? "";
+  return `/auth/verify-email?token=${encodeURIComponent(token)}`;
+}
+
 async function signupAndVerify(ctx: ReturnType<typeof makeTestApp>) {
   await ctx.app.request(
     "/auth/signup",
     json({ email: EMAIL, password: PASSWORD }),
   );
   const link = ctx.mailer.sent.at(-1)?.link ?? "";
-  return ctx.app.request(new URL(link).pathname + new URL(link).search);
+  return ctx.app.request(verifyPath(link));
 }
 
 async function login(ctx: ReturnType<typeof makeTestApp>) {
@@ -45,7 +51,7 @@ describe("signup", () => {
     ).not.toBeNull();
     expect(ctx.mailer.sent).toHaveLength(1);
     expect(ctx.mailer.sent[0]?.link).toMatch(
-      /^http:\/\/api\.test\/auth\/verify-email\?token=/,
+      /^http:\/\/web\.test\/verify-email\?token=/,
     );
   });
 
@@ -105,10 +111,8 @@ describe("verify-email", () => {
     expect(first.status).toBe(200);
     expect(await first.json()).toEqual({ status: "verified" });
 
-    const link = new URL(ctx.mailer.sent[0]?.link ?? "");
-    expect((await ctx.app.request(link.pathname + link.search)).status).toBe(
-      400,
-    );
+    const link = ctx.mailer.sent[0]?.link ?? "";
+    expect((await ctx.app.request(verifyPath(link))).status).toBe(400);
     expect(
       (await ctx.app.request("/auth/verify-email?token=unknown")).status,
     ).toBe(400);

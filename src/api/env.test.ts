@@ -23,7 +23,7 @@ describe("parseEnv", () => {
       LOG_LEVEL: "info",
       DATABASE_URL: DB,
       JWT_SECRET: JWT,
-      PUBLIC_API_URL: "http://localhost:3000",
+      WEB_APP_URL: "http://localhost:5173",
       TRUST_PROXY: false,
     });
   });

@@ -123,7 +123,7 @@ export function makeTestApp(
       rateLimiter,
       mailer,
       jwtSecret: TEST_SECRET,
-      publicApiUrl: "http://api.test",
+      webAppUrl: "http://web.test",
       secureCookies: opts.secureCookies ?? false,
       clientIp: () => "203.0.113.7",
     },

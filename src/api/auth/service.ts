@@ -18,7 +18,7 @@ export const LIMITS = {
   login: { limit: 10, windowSec: 15 * 60 },
 } as const;
 
-export type AuthConfig = { jwtSecret: string; publicApiUrl: string };
+export type AuthConfig = { jwtSecret: string; webAppUrl: string };
 
 export type Session = {
   accessToken: string;
@@ -81,7 +81,7 @@ export class AuthService {
       },
     });
 
-    const link = `${this.config.publicApiUrl}/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const link = `${this.config.webAppUrl}/verify-email?token=${encodeURIComponent(token)}`;
     await this.mailer.send({
       to: email,
       subject: "Bitte bestätige deine E-Mail-Adresse",

@@ -21,9 +21,9 @@ export const EnvSchema = z.object({
   JWT_SECRET: z
     .string({ error: "is required" })
     .min(32, { error: "must be at least 32 characters" }),
-  PUBLIC_API_URL: z
+  WEB_APP_URL: z
     .url({ error: "must be a URL" })
-    .default("http://localhost:3000"),
+    .default("http://localhost:5173"),
   TRUST_PROXY: z
     .enum(["true", "false"], { error: 'must be "true" or "false"' })
     .default("false")

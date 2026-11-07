@@ -32,7 +32,7 @@ const app = createApp({
     rateLimiter: new DbRateLimiter(db),
     mailer,
     jwtSecret: env.JWT_SECRET,
-    publicApiUrl: env.PUBLIC_API_URL,
+    webAppUrl: env.WEB_APP_URL,
     secureCookies: env.NODE_ENV === "production",
     clientIp: createClientIpResolver(env.TRUST_PROXY),
   },

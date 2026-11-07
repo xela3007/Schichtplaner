@@ -22,7 +22,7 @@ export type AppDeps = {
     rateLimiter: RateLimiter;
     mailer: Mailer;
     jwtSecret: string;
-    publicApiUrl: string;
+    webAppUrl: string;
     secureCookies: boolean;
     clientIp: (c: Context) => string;
   };
@@ -53,7 +53,7 @@ export function createApp({ logger, buildInfo, checkDatabase, auth }: AppDeps) {
     auth.repository,
     auth.rateLimiter,
     auth.mailer,
-    { jwtSecret: auth.jwtSecret, publicApiUrl: auth.publicApiUrl },
+    { jwtSecret: auth.jwtSecret, webAppUrl: auth.webAppUrl },
     logger,
   );
   const authenticated = requireAuth(auth.jwtSecret);
