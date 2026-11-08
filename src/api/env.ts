@@ -28,6 +28,20 @@ export const EnvSchema = z.object({
     .enum(["true", "false"], { error: 'must be "true" or "false"' })
     .default("false")
     .transform((value) => value === "true"),
+  PLANNER_EMAILS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    )
+    .pipe(
+      z.array(
+        z.email({ error: "must be a comma-separated list of email addresses" }),
+      ),
+    ),
   CORS_ORIGINS: z
     .string()
     .default("")

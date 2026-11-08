@@ -7,6 +7,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    /** Parsed error body, e.g. `current` for a version_conflict. */
+    readonly body: unknown = null,
   ) {
     super(`${status} ${code}`);
     this.name = "ApiError";
@@ -15,7 +17,7 @@ export class ApiError extends Error {
 
 type Options<T extends z.ZodType> = {
   schema?: T;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   body?: unknown;
   /** Send the access token and refresh once on 401. */
   auth?: boolean;
@@ -85,10 +87,12 @@ export function refreshSession(): Promise<boolean> {
 }
 
 async function toError(res: Response): Promise<ApiError> {
-  const parsed = ErrorResponse.safeParse(await res.json().catch(() => null));
+  const raw: unknown = await res.json().catch(() => null);
+  const parsed = ErrorResponse.safeParse(raw);
   return new ApiError(
     res.status,
     parsed.success ? parsed.data.error : "unknown_error",
+    raw,
   );
 }
 

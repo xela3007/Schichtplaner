@@ -25,6 +25,7 @@ describe("parseEnv", () => {
       JWT_SECRET: JWT,
       WEB_APP_URL: "http://localhost:5173",
       TRUST_PROXY: false,
+      PLANNER_EMAILS: [],
       CORS_ORIGINS: [],
       COOKIE_SAMESITE: "lax",
       HOST: "::",
@@ -86,5 +87,18 @@ describe("parseEnv", () => {
       parseEnv({ ...BASE, COOKIE_SAMESITE: "strict" }),
     );
     expect(sameSite.issues.map((i) => i.variable)).toContain("COOKIE_SAMESITE");
+  });
+
+  it("parses PLANNER_EMAILS lowercased and rejects non-emails", () => {
+    expect(
+      parseEnv({
+        ...BASE,
+        PLANNER_EMAILS: " Anke@Example.org, bob@example.org ",
+      }).PLANNER_EMAILS,
+    ).toEqual(["anke@example.org", "bob@example.org"]);
+    const error = errorOf(() =>
+      parseEnv({ ...BASE, PLANNER_EMAILS: "not-an-email" }),
+    );
+    expect(error.issues.map((i) => i.variable)).toContain("PLANNER_EMAILS");
   });
 });

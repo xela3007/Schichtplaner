@@ -7,6 +7,7 @@ import { DrizzleAuthRepository } from "./auth/repository.js";
 import { getBuildInfo } from "./build-info.js";
 import { createDb } from "./db/client.js";
 import { loadEnv } from "./env.js";
+import { DrizzleLocationRepository } from "./locations/repository.js";
 import { createLogger } from "./logger.js";
 import { ConsoleMailer } from "./mail/mailer.js";
 
@@ -28,6 +29,7 @@ const app = createApp({
   logger,
   buildInfo,
   checkDatabase: ping,
+  locations: new DrizzleLocationRepository(db),
   auth: {
     repository: new DrizzleAuthRepository(db),
     rateLimiter: new DbRateLimiter(db),
@@ -39,6 +41,7 @@ const app = createApp({
       env.COOKIE_SAMESITE,
     ),
     corsOrigins: env.CORS_ORIGINS,
+    plannerEmails: env.PLANNER_EMAILS,
     clientIp: createClientIpResolver(env.TRUST_PROXY),
   },
 });

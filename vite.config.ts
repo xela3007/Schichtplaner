@@ -36,6 +36,8 @@ export default defineConfig({
     proxy: {
       "^/(health|me|reference)(\\?.*)?$": api,
       "^/auth/(signup|verify-email|login|refresh|logout)(\\?.*)?$": api,
+      // Pages live under /standorte, the API under /locations — no collision.
+      "^/locations(/.*)?(\\?.*)?$": api,
     },
   },
 });

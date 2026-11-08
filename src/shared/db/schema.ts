@@ -4,8 +4,10 @@ import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -122,3 +124,61 @@ export const rateLimits = pgTable("rate_limits", {
   count: integer("count").notNull(),
   ...timestamps,
 });
+
+// --- Locations (Standorte) -------------------------------------------------
+// Opening hours are times of day in local time Europe/Berlin, "HH:MM"
+// (ADR-004 amendment). Stored as one jsonb value so version check and audit
+// entry stay a single statement (ADR-015). Validated by Zod before writing.
+export type StoredTimeRange = { weekday: string; start: string; end: string };
+
+export const locations = pgTable(
+  "locations",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    kind: text("kind").notNull(),
+    openingHours: jsonb("opening_hours")
+      .$type<StoredTimeRange[]>()
+      .notNull()
+      .default([]),
+    active: boolean("active").notNull().default(true),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("locations_name_lower_idx").on(sql`lower(${t.name})`),
+    check(
+      "locations_kind_check",
+      sql`${t.kind} in ('customer_area', 'reception', 'training_center', 'other')`,
+    ),
+  ],
+);
+
+// --- Central audit log (ADR-015) — append-only -----------------------------
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: id(),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    action: text("action").notNull(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    changes: jsonb("changes")
+      .$type<Record<string, { from: unknown; to: unknown }>>()
+      .notNull()
+      .default({}),
+    ...timestamps,
+  },
+  (t) => [
+    index("audit_events_entity_idx").on(
+      t.entityType,
+      t.entityId,
+      t.occurredAt.desc(),
+    ),
+  ],
+);

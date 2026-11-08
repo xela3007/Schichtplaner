@@ -18,7 +18,14 @@ export const LIMITS = {
   login: { limit: 10, windowSec: 15 * 60 },
 } as const;
 
-export type AuthConfig = { jwtSecret: string; webAppUrl: string };
+export type AuthConfig = {
+  jwtSecret: string;
+  webAppUrl: string;
+  /** Lowercased emails that hold the role "planner" (env PLANNER_EMAILS). */
+  plannerEmails?: readonly string[];
+};
+
+export const PLANNER_ROLE = "planner";
 
 export type Session = {
   accessToken: string;
@@ -159,6 +166,26 @@ export class AuthService {
     return this.repo.findUserById(userId);
   }
 
+  /**
+   * Until there is a role management UI, PLANNER_EMAILS is the source of truth
+   * for the planner role: listed users get it, everybody else loses it.
+   * Runs on every login and refresh, before permissions go into the token.
+   */
+  private async syncPlannerRole(userId: string) {
+    const user = await this.repo.findUserById(userId);
+    if (!user) return;
+    const shouldHave = (this.config.plannerEmails ?? []).includes(
+      user.email.toLowerCase(),
+    );
+    const changed = await this.repo.syncRole(userId, PLANNER_ROLE, shouldHave);
+    if (changed) {
+      this.log.info(
+        { userId, role: PLANNER_ROLE, granted: shouldHave },
+        "role synced from PLANNER_EMAILS",
+      );
+    }
+  }
+
   private async reuseDetected(userId: string) {
     await this.repo.revokeAllForUser(userId);
     this.log.warn(
@@ -171,6 +198,7 @@ export class AuthService {
     userId: string,
     refreshToken: string,
   ): Promise<Session> {
+    await this.syncPlannerRole(userId);
     const permissions = await this.repo.getPermissions(userId);
     return {
       accessToken: await signAccessToken(

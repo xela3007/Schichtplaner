@@ -22,6 +22,20 @@
       "when": 1794036628210,
       "tag": "0002_seed_rbac",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794128293581,
+      "tag": "0003_locations",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794128296279,
+      "tag": "0004_seed_planner",
+      "breakpoints": true
     }
   ]
 }

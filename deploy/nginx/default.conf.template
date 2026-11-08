@@ -44,6 +44,12 @@ server {
     include /etc/nginx/api-proxy.conf;
   }
 
+  # Locations API (pages live under /standorte, so no collision)
+  location ~ ^/locations(/|$) {
+    proxy_pass $api_upstream;
+    include /etc/nginx/api-proxy.conf;
+  }
+
   # Page AND API route: the mail link opens the SPA, the SPA's fetch hits the API.
   location = /auth/verify-email {
     if ($spa_navigation) {

@@ -52,6 +52,12 @@ export interface AuthRepository {
     tokenHash: string,
   ): Promise<{ userId: string } | null>;
   getPermissions(userId: string): Promise<string[]>;
+  /** Grants or revokes a role by key; returns true if something changed. */
+  syncRole(
+    userId: string,
+    roleKey: string,
+    shouldHave: boolean,
+  ): Promise<boolean>;
   insertRefreshToken(token: NewRefreshToken): Promise<void>;
   findRefreshToken(tokenHash: string): Promise<RefreshTokenRecord | null>;
   /** Revokes `oldId` and inserts its successor atomically; false if `oldId` was no longer active. */
@@ -144,6 +150,23 @@ export class DrizzleAuthRepository implements AuthRepository {
       .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
       .where(eq(userRoles.userId, userId));
     return rows.map((r) => r.key).sort();
+  }
+
+  async syncRole(userId: string, roleKey: string, shouldHave: boolean) {
+    const result = shouldHave
+      ? await this.db.execute(sql`
+          insert into ${userRoles} (user_id, role_id)
+          select ${userId}, ${roles.id} from ${roles} where ${roles.key} = ${roleKey}
+          on conflict do nothing
+          returning user_id
+        `)
+      : await this.db.execute(sql`
+          delete from ${userRoles}
+          where user_id = ${userId}
+            and role_id = (select ${roles.id} from ${roles} where ${roles.key} = ${roleKey})
+          returning user_id
+        `);
+    return result.rows.length > 0;
   }
 
   async insertRefreshToken(token: NewRefreshToken) {

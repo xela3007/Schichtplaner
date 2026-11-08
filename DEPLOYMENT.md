@@ -57,19 +57,20 @@ nutzt Railway für neue Services nicht mehr; sie sind entfernt.
 
 ### api
 
-| Variable                  | staging                                  | production                                | Hinweis                                             |
-| ------------------------- | ---------------------------------------- | ----------------------------------------- | --------------------------------------------------- |
-| `NODE_ENV`                | `production`                             | `production`                              |                                                     |
-| `DATABASE_URL`            | Neon `staging`, pooled                   | Neon `production`, pooled                 | Secret                                              |
-| `DATABASE_URL_UNPOOLED`   | Neon `staging`, direkt                   | Neon `production`, direkt                 | Secret, für Migrationen                             |
-| `JWT_SECRET`              | zufällig, 48 Byte                        | zufällig, 48 Byte, **anders als staging** | Secret                                              |
-| `WEB_APP_URL`             | `https://${{web.RAILWAY_PUBLIC_DOMAIN}}` | dito                                      | Ziel des Bestätigungslinks                          |
-| `TRUST_PROXY`             | `true`                                   | `true`                                    | Client-IP aus `X-Forwarded-For` (von nginx gesetzt) |
-| `COOKIE_SAMESITE`         | `lax`                                    | `lax`                                     | gleiche Origin (ADR-014)                            |
-| `CORS_ORIGINS`            | leer                                     | leer                                      | keine fremden Origins                               |
-| `LOG_LEVEL`               | `info`                                   | `info`                                    |                                                     |
-| `PORT`                    | `3000`                                   | `3000`                                    | fest, damit `web` die API adressieren kann          |
-| `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.api`                         | `Dockerfile.api`                          | Rückfallebene, doppelt zu `.railway/railway.ts`     |
+| Variable                  | staging                                  | production                                | Hinweis                                                                         |
+| ------------------------- | ---------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------- |
+| `NODE_ENV`                | `production`                             | `production`                              |                                                                                 |
+| `DATABASE_URL`            | Neon `staging`, pooled                   | Neon `production`, pooled                 | Secret                                                                          |
+| `DATABASE_URL_UNPOOLED`   | Neon `staging`, direkt                   | Neon `production`, direkt                 | Secret, für Migrationen                                                         |
+| `JWT_SECRET`              | zufällig, 48 Byte                        | zufällig, 48 Byte, **anders als staging** | Secret                                                                          |
+| `WEB_APP_URL`             | `https://${{web.RAILWAY_PUBLIC_DOMAIN}}` | dito                                      | Ziel des Bestätigungslinks                                                      |
+| `TRUST_PROXY`             | `true`                                   | `true`                                    | Client-IP aus `X-Forwarded-For` (von nginx gesetzt)                             |
+| `COOKIE_SAMESITE`         | `lax`                                    | `lax`                                     | gleiche Origin (ADR-014)                                                        |
+| `CORS_ORIGINS`            | leer                                     | leer                                      | keine fremden Origins                                                           |
+| `LOG_LEVEL`               | `info`                                   | `info`                                    |                                                                                 |
+| `PLANNER_EMAILS`          | E-Mail(s) der Planerin                   | E-Mail(s) der Planerin                    | Rolle „Planerin“ (Recht `locations.manage`), wird bei Login/Refresh abgeglichen |
+| `PORT`                    | `3000`                                   | `3000`                                    | fest, damit `web` die API adressieren kann                                      |
+| `RAILWAY_DOCKERFILE_PATH` | `Dockerfile.api`                         | `Dockerfile.api`                          | Rückfallebene, doppelt zu `.railway/railway.ts`                                 |
 
 `RAILWAY_GIT_COMMIT_SHA` setzt Railway selbst. `HOST` ist im Code auf `::`
 vorbelegt (privates Netz ist IPv6). `PORT` muss explizit gesetzt sein: Railways

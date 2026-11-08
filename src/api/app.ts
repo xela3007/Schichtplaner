@@ -8,9 +8,11 @@ import type { RateLimiter } from "./auth/rate-limit.js";
 import type { AuthRepository } from "./auth/repository.js";
 import { AuthService } from "./auth/service.js";
 import type { BuildInfo } from "./build-info.js";
+import type { LocationRepository } from "./locations/repository.js";
 import type { Mailer } from "./mail/mailer.js";
 import { authRoutes } from "./routes/auth.js";
 import { healthRoutes } from "./routes/health.js";
+import { locationRoutes } from "./routes/locations.js";
 import { meRoutes } from "./routes/me.js";
 import { referenceRoutes } from "./routes/reference.js";
 import type { AppEnv } from "./types.js";
@@ -19,6 +21,7 @@ export type AppDeps = {
   logger: Logger;
   buildInfo: BuildInfo;
   checkDatabase: () => Promise<boolean>;
+  locations: LocationRepository;
   auth: {
     repository: AuthRepository;
     rateLimiter: RateLimiter;
@@ -27,11 +30,18 @@ export type AppDeps = {
     webAppUrl: string;
     cookiePolicy: CookiePolicy;
     corsOrigins: readonly string[];
+    plannerEmails?: readonly string[];
     clientIp: (c: Context) => string;
   };
 };
 
-export function createApp({ logger, buildInfo, checkDatabase, auth }: AppDeps) {
+export function createApp({
+  logger,
+  buildInfo,
+  checkDatabase,
+  auth,
+  locations,
+}: AppDeps) {
   const app = new Hono<AppEnv>();
 
   app.use(requestId());
@@ -71,7 +81,11 @@ export function createApp({ logger, buildInfo, checkDatabase, auth }: AppDeps) {
     auth.repository,
     auth.rateLimiter,
     auth.mailer,
-    { jwtSecret: auth.jwtSecret, webAppUrl: auth.webAppUrl },
+    {
+      jwtSecret: auth.jwtSecret,
+      webAppUrl: auth.webAppUrl,
+      plannerEmails: auth.plannerEmails,
+    },
     logger,
   );
   const authenticated = requireAuth(auth.jwtSecret);
@@ -89,6 +103,9 @@ export function createApp({ logger, buildInfo, checkDatabase, auth }: AppDeps) {
   app.route("/", meRoutes(service));
   app.use("/reference", authenticated);
   app.route("/", referenceRoutes());
+  app.use("/locations", authenticated);
+  app.use("/locations/*", authenticated);
+  app.route("/", locationRoutes(locations));
 
   app.notFound((c) =>
     c.json({ error: "not_found", requestId: c.get("requestId") }, 404),
