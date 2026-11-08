@@ -8,11 +8,14 @@ import {
   type AssignInput,
   type Assignment,
   type ScheduleWeek,
+  type ShiftOverride,
   toMin,
 } from "#shared/schedule.js";
 import type {
   AssignResult,
   DeactivateResult,
+  OverrideResult,
+  OverrideWrite,
   RemoveResult,
   ScheduleRepository,
   Target,
@@ -32,6 +35,7 @@ type Logged = AuditEntry & { locationId: string };
 
 export class InMemoryScheduleRepository implements ScheduleRepository {
   rows = new Map<string, Assignment>();
+  overrides = new Map<string, ShiftOverride>();
   audit: Logged[] = [];
   constructor(
     private readonly deps: {
@@ -106,6 +110,9 @@ export class InMemoryScheduleRepository implements ScheduleRepository {
       ),
       rules: [...this.deps.availability.rules.values()].filter((r) =>
         ids.has(r.employeeId),
+      ),
+      overrides: [...this.overrides.values()].filter(
+        (o) => o.date >= start && o.date <= end,
       ),
     };
   }
@@ -216,5 +223,73 @@ export class InMemoryScheduleRepository implements ScheduleRepository {
       }
     }
     return { kind: "ok", removed };
+  }
+
+  async getOverride(id: string) {
+    return this.overrides.get(id) ?? null;
+  }
+
+  async writeOverride(w: OverrideWrite): Promise<OverrideResult> {
+    let result: ShiftOverride | null = null;
+    let locationId: string;
+    if (w.op.type === "insert") {
+      const row = w.op.row;
+      const clash =
+        row.kind !== "added" &&
+        [...this.overrides.values()].some(
+          (o) =>
+            o.kind !== "added" &&
+            o.locationId === row.locationId &&
+            o.date === row.date &&
+            o.baseStart === row.baseStart &&
+            o.baseEnd === row.baseEnd,
+        );
+      if (clash) return { kind: "already_overridden" };
+      result = { id: uuidv7(), ...row, version: 1, updatedAt: now() };
+      this.overrides.set(result.id, result);
+      locationId = row.locationId;
+    } else {
+      const cur = this.overrides.get(w.op.id);
+      if (!cur) return { kind: "not_found" };
+      if (cur.version !== w.op.version)
+        return { kind: "conflict", current: cur };
+      locationId = cur.locationId;
+      if (w.op.type === "update") {
+        result = {
+          ...cur,
+          ...w.op.set,
+          version: cur.version + 1,
+          updatedAt: now(),
+        };
+        this.overrides.set(cur.id, result);
+      } else {
+        this.overrides.delete(cur.id);
+      }
+    }
+    if (w.anchor) {
+      for (const id of w.keep) {
+        const a = this.rows.get(id);
+        if (a)
+          this.rows.set(id, {
+            ...a,
+            shiftStart: w.anchor.start,
+            shiftEnd: w.anchor.end,
+            version: a.version + 1,
+          });
+      }
+    }
+    for (const a of w.remove) {
+      if (this.rows.delete(a.id))
+        this.log(a.locationId, "unassigned", a, null, "shift_changed");
+    }
+    this.audit.push({
+      id: uuidv7(),
+      locationId,
+      action: w.action,
+      actorEmail: "anke@example.org",
+      occurredAt: now(),
+      changes: { entry: { from: null, to: w.snapshot } },
+    });
+    return { kind: "ok", override: result };
   }
 }

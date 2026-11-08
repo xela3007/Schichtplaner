@@ -148,3 +148,81 @@ describe("SchedulePage", () => {
     ).toBeTruthy();
   });
 });
+
+describe("SchedulePage – day overrides", () => {
+  it("labels added and changed shifts, strikes cancelled ones and offers no assign on them", async () => {
+    const T = "2026-11-08T08:00:00.000Z";
+    const base = { locationId: f.G21, version: 1, updatedAt: T };
+    mockApi(
+      {
+        [`GET /schedule/week?start=${f.MON}`]: json(
+          200,
+          f.week({
+            today: "2026-11-10",
+            overrides: [
+              {
+                ...base,
+                id: "01a1bb3f-0000-7000-8000-000000000091",
+                date: "2026-11-16",
+                kind: "changed",
+                baseStart: "07:30",
+                baseEnd: "19:00",
+                start: "07:30",
+                end: "15:00",
+                people: 2,
+              },
+              {
+                ...base,
+                id: "01a1bb3f-0000-7000-8000-000000000092",
+                date: "2026-11-16",
+                kind: "added",
+                baseStart: null,
+                baseEnd: null,
+                start: "17:00",
+                end: "21:00",
+                people: 1,
+              },
+              {
+                ...base,
+                id: "01a1bb3f-0000-7000-8000-000000000093",
+                date: "2026-11-17",
+                kind: "cancelled",
+                baseStart: "07:30",
+                baseEnd: "19:00",
+                start: null,
+                end: null,
+                people: null,
+              },
+            ],
+          }),
+        ),
+      },
+      PERMS,
+    );
+    render();
+    const monday = (
+      await screen.findAllByRole("region", { name: "Mo 16.11." })
+    )[0] as HTMLElement;
+    expect(
+      within(monday).getByText("angepasst (normal 07:30–19:00)"),
+    ).toBeTruthy();
+    expect(within(monday).getByText("zusätzlich")).toBeTruthy();
+    expect(
+      within(monday).getByRole("button", {
+        name: "Mo 16.11. 17:00–21:00 einteilen",
+      }),
+    ).toBeTruthy();
+    const tuesday = screen.getAllByRole("region", {
+      name: "Di 17.11.",
+    })[0] as HTMLElement;
+    expect(within(tuesday).getByText("entfällt")).toBeTruthy();
+    expect(
+      within(tuesday).queryByRole("button", { name: /einteilen/ }),
+    ).toBeNull();
+    expect(
+      within(tuesday).getByRole("button", {
+        name: "Di 17.11. 07:30–19:00 auf Standard zurücksetzen",
+      }),
+    ).toBeTruthy();
+  });
+});

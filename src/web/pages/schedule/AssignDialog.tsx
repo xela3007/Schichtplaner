@@ -4,8 +4,8 @@ import { formatDate, weekdayOf } from "#shared/availability.js";
 import type { Weekday } from "#shared/locations.js";
 import {
   Assignment,
+  assignmentWindowOk,
   hoursText,
-  insideOpening,
   rankCandidates,
   type ScheduleLocation,
   type ScheduleWeek,
@@ -84,8 +84,14 @@ export function AssignDialog({
     /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && start < end;
   const timeError = !timeValid
     ? "Das Ende muss nach dem Beginn liegen."
-    : !insideOpening(shift.location, shift.date, start, end)
-      ? "Liegt außerhalb der Öffnungszeiten."
+    : !assignmentWindowOk(shift.location, week.overrides, {
+          date: shift.date,
+          start,
+          end,
+          shiftStart: shift.start,
+          shiftEnd: shift.end,
+        })
+      ? "Liegt außerhalb der Öffnungszeiten und der Schicht."
       : null;
   const candidates = timeError
     ? []

@@ -427,3 +427,48 @@ export const shiftAssignments = pgTable(
     ),
   ],
 );
+
+// --- Schichtplan Teil 2: day overrides of the staffing demand ------------------
+// One row per added / changed / cancelled shift on a single day. At most one
+// override per standard shift and day (partial unique index).
+export const shiftOverrides = pgTable(
+  "shift_overrides",
+  {
+    id: id(),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => locations.id),
+    date: date("date", { mode: "string" }).notNull(),
+    kind: text("kind").notNull(),
+    baseStart: text("base_start"),
+    baseEnd: text("base_end"),
+    startTime: text("start_time"),
+    endTime: text("end_time"),
+    people: integer("people"),
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps,
+  },
+  (t) => [
+    index("shift_overrides_location_date_idx").on(t.locationId, t.date),
+    uniqueIndex("shift_overrides_base_unique_idx")
+      .on(t.locationId, t.date, t.baseStart, t.baseEnd)
+      .where(sql`${t.kind} <> 'added'`),
+    check(
+      "shift_overrides_kind_check",
+      sql`${t.kind} in ('added', 'changed', 'cancelled')`,
+    ),
+    check(
+      "shift_overrides_shape_check",
+      sql`(${t.kind} = 'added' and ${t.startTime} is not null and ${t.endTime} is not null and ${t.people} is not null and ${t.baseStart} is null and ${t.baseEnd} is null)
+        or (${t.kind} = 'changed' and ${t.startTime} is not null and ${t.endTime} is not null and ${t.people} is not null and ${t.baseStart} is not null and ${t.baseEnd} is not null)
+        or (${t.kind} = 'cancelled' and ${t.startTime} is null and ${t.endTime} is null and ${t.people} is null and ${t.baseStart} is not null and ${t.baseEnd} is not null)`,
+    ),
+    check(
+      "shift_overrides_values_check",
+      sql`(${t.startTime} is null or ${t.startTime} < ${t.endTime}) and (${t.baseStart} is null or ${t.baseStart} < ${t.baseEnd}) and (${t.people} is null or ${t.people} between 1 and 20)`,
+    ),
+  ],
+);

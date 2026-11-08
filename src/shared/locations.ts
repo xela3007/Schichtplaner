@@ -131,6 +131,12 @@ export const AuditAction = z.enum([
   // shift plan (entity shift_assignment, recorded on the location)
   "assigned",
   "unassigned",
+  // day overrides (Teil 2), same entity as assignments
+  "shift_added",
+  "shift_changed",
+  "shift_cancelled",
+  "shift_reset",
+  "shift_deleted",
 ]);
 export type AuditAction = z.infer<typeof AuditAction>;
 

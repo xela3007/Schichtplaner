@@ -110,7 +110,7 @@ describe("AssignDialog", () => {
     await userEvent.clear(from);
     await userEvent.type(from, "06:00");
     expect(
-      screen.getByText("Liegt außerhalb der Öffnungszeiten."),
+      screen.getByText("Liegt außerhalb der Öffnungszeiten und der Schicht."),
     ).toBeTruthy();
   });
 });

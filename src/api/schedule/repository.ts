@@ -12,6 +12,7 @@ import {
   locationStaffing,
   locations,
   shiftAssignments,
+  shiftOverrides,
   users,
 } from "#shared/db/schema.js";
 import type { AuditEntry } from "#shared/locations.js";
@@ -19,6 +20,7 @@ import type {
   AssignInput,
   Assignment,
   ScheduleWeek,
+  ShiftOverride,
 } from "#shared/schedule.js";
 import type { Db } from "../db/client.js";
 
@@ -36,6 +38,39 @@ export type DeactivateResult =
   | { kind: "conflict" }
   | { kind: "not_found" };
 export type ScheduleHistoryEntry = AuditEntry & { employeeName: string | null };
+/** One override write incl. the assignment consequences, as ONE statement. */
+export type OverrideWrite = {
+  op:
+    | {
+        type: "insert";
+        row: Omit<ShiftOverride, "id" | "version" | "updatedAt">;
+      }
+    | {
+        type: "update";
+        id: string;
+        version: number;
+        set: Pick<ShiftOverride, "kind" | "start" | "end" | "people">;
+      }
+    | { type: "delete"; id: string; version: number };
+  /** assignments that still fit → re-anchored to `anchor` */
+  keep: string[];
+  anchor: { start: string; end: string } | null;
+  /** assignments that no longer fit → removed (confirmed by the planner) */
+  remove: Assignment[];
+  action:
+    | "shift_added"
+    | "shift_changed"
+    | "shift_cancelled"
+    | "shift_reset"
+    | "shift_deleted";
+  snapshot: Record<string, unknown>;
+};
+export type OverrideResult =
+  | { kind: "ok"; override: ShiftOverride | null }
+  | { kind: "conflict"; current: ShiftOverride }
+  | { kind: "not_found" }
+  | { kind: "already_overridden" };
+
 export type Target = { employeeId: string } | { locationId: string };
 
 export interface ScheduleRepository {
@@ -53,6 +88,8 @@ export interface ScheduleRepository {
     today: string,
     actorId: string,
   ): Promise<DeactivateResult>;
+  getOverride(id: string): Promise<ShiftOverride | null>;
+  writeOverride(write: OverrideWrite, actorId: string): Promise<OverrideResult>;
 }
 
 const COLS =
@@ -60,6 +97,20 @@ const COLS =
   start_time as "start", end_time as "end", shift_start as "shiftStart", shift_end as "shiftEnd", version, updated_at as "updatedAt"`);
 type Raw<T> = Omit<T, "updatedAt"> & { updatedAt: string | Date };
 const iso = (v: string | Date) => new Date(v).toISOString();
+const OV_COLS =
+  sql.raw(`id, location_id as "locationId", date::text as "date", kind, base_start as "baseStart", base_end as "baseEnd",
+  start_time as "start", end_time as "end", people, version, updated_at as "updatedAt"`);
+type RawOverride = Omit<ShiftOverride, "updatedAt"> & {
+  updatedAt: string | Date;
+};
+const toOverride = (r: RawOverride): ShiftOverride => ({
+  ...r,
+  updatedAt: iso(r.updatedAt),
+});
+function isUnique(error: unknown) {
+  const e = error as { code?: string; cause?: { code?: string } };
+  return (e.code ?? e.cause?.code) === "23505";
+}
 const toAssignment = (r: Raw<Assignment>): Assignment => ({
   ...r,
   updatedAt: iso(r.updatedAt),
@@ -88,6 +139,9 @@ export class DrizzleScheduleRepository implements ScheduleRepository {
 
   async week(start: string, today: string): Promise<ScheduleWeek> {
     const end = addDays(start, 6);
+    const ovs = await this.db.execute<RawOverride>(sql`
+      select ${OV_COLS} from ${shiftOverrides} where date between ${start}::date and ${addDays(start, 6)}::date
+      order by date, start_time nulls last`);
     const [locs, asg] = await Promise.all([
       this.db.execute<{
         id: string;
@@ -142,6 +196,7 @@ export class DrizzleScheduleRepository implements ScheduleRepository {
       assignments,
       absences: abs.rows.map((a) => ({ ...a, updatedAt: iso(a.updatedAt) })),
       rules: rules.rows.map((r) => ({ ...r, updatedAt: iso(r.updatedAt) })),
+      overrides: ovs.rows.map(toOverride),
     };
   }
 
@@ -282,5 +337,79 @@ export class DrizzleScheduleRepository implements ScheduleRepository {
       sql`select 1 from ${table} where id = ${id}`,
     );
     return exists.rows.length ? { kind: "conflict" } : { kind: "not_found" };
+  }
+
+  async getOverride(id: string) {
+    const r = await this.db.execute<RawOverride>(
+      sql`select ${OV_COLS} from ${shiftOverrides} where id = ${id}`,
+    );
+    return r.rows[0] ? toOverride(r.rows[0]) : null;
+  }
+
+  async writeOverride(
+    w: OverrideWrite,
+    actorId: string,
+  ): Promise<OverrideResult> {
+    const op =
+      w.op.type === "insert"
+        ? sql`insert into ${shiftOverrides} (id, location_id, date, kind, base_start, base_end, start_time, end_time, people, created_by)
+            values (${uuidv7()}, ${w.op.row.locationId}, ${w.op.row.date}::date, ${w.op.row.kind}, ${w.op.row.baseStart}::text, ${w.op.row.baseEnd}::text,
+              ${w.op.row.start}::text, ${w.op.row.end}::text, ${w.op.row.people}::int, ${actorId})
+            returning ${OV_COLS}`
+        : w.op.type === "update"
+          ? sql`update ${shiftOverrides} set kind = ${w.op.set.kind}, start_time = ${w.op.set.start}::text, end_time = ${w.op.set.end}::text,
+              people = ${w.op.set.people}::int, version = version + 1, updated_at = now()
+              where id = ${w.op.id} and version = ${w.op.version} returning ${OV_COLS}`
+          : sql`delete from ${shiftOverrides} where id = ${w.op.id} and version = ${w.op.version} returning ${OV_COLS}`;
+    // Audit IDs from the application (ADR-004).
+    const pairs = JSON.stringify(
+      w.remove.map((a) => ({ a: a.id, audit: uuidv7() })),
+    );
+    const anchor = w.anchor ?? { start: null, end: null };
+    try {
+      const r = await this.db.execute<RawOverride>(sql`
+        with o as (${op}),
+        k as (
+          update ${shiftAssignments} set shift_start = ${anchor.start}::text, shift_end = ${anchor.end}::text,
+            version = version + 1, updated_at = now()
+          where id::text in (select jsonb_array_elements_text(${JSON.stringify(w.keep)}::jsonb))
+            and ${anchor.start}::text is not null and exists (select 1 from o)
+        ),
+        p as (
+          select (x->>'a')::uuid as assignment_id, (x->>'audit')::uuid as audit_id from jsonb_array_elements(${pairs}::jsonb) x
+        ),
+        d as (
+          delete from ${shiftAssignments} s using p where s.id = p.assignment_id and exists (select 1 from o)
+          returning p.audit_id, s.location_id, s.employee_id, s.date::text as date, s.start_time, s.end_time, s.shift_start, s.shift_end
+        ),
+        a1 as (
+          insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+          select ${uuidv7()}::uuid, ${ENTITY_TYPE}::text, o."locationId", ${w.action}::text, ${actorId}::uuid,
+            jsonb_build_object('entry', jsonb_build_object('from', null, 'to', ${JSON.stringify(w.snapshot)}::jsonb))
+          from o
+        ),
+        a2 as (
+          insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+          select d.audit_id, ${ENTITY_TYPE}::text, d.location_id, 'unassigned', ${actorId}::uuid,
+            jsonb_build_object('entry', jsonb_build_object('from', jsonb_build_object(
+              'date', d.date, 'employeeId', d.employee_id, 'start', d.start_time, 'end', d.end_time,
+              'shiftStart', d.shift_start, 'shiftEnd', d.shift_end), 'to', null),
+              'reason', jsonb_build_object('from', null, 'to', 'shift_changed'))
+          from d
+        )
+        select * from o`);
+      const row = r.rows[0];
+      if (row)
+        return {
+          kind: "ok",
+          override: w.op.type === "delete" ? null : toOverride(row),
+        };
+      if (w.op.type === "insert") throw new Error("insert returned no row");
+      const current = await this.getOverride(w.op.id);
+      return current ? { kind: "conflict", current } : { kind: "not_found" };
+    } catch (error) {
+      if (isUnique(error)) return { kind: "already_overridden" };
+      throw error;
+    }
   }
 }

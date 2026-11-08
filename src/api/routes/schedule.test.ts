@@ -42,6 +42,18 @@ beforeEach(async () => {
       { weekday: "mon", start: "08:00", end: "10:00", people: 2 },
     ],
   });
+  await call("PUT", `/locations/${g21}/staffing`, {
+    version: 1,
+    windows: [
+      { weekday: "mon", start: "07:30", end: "19:00", people: 2 },
+      { weekday: "mon", start: "08:00", end: "10:00", people: 2 },
+      { weekday: "tue", start: "07:30", end: "19:00", people: 1 },
+    ],
+  });
+  await call("PUT", `/locations/${g5}/staffing`, {
+    version: 0,
+    windows: [{ weekday: "mon", start: "07:30", end: "19:00", people: 1 }],
+  });
   const ct = (
     await call("POST", "/contract-types", { name: "30", weeklyMinutes: 1800 })
   ).body.id;
@@ -104,7 +116,7 @@ describe("week payload", () => {
     expect(
       w.body.locations.find((l: { id: string }) => l.id === g21)
         .staffingWindows,
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(w.body.employees[0]).not.toHaveProperty("mobile");
     expect(JSON.stringify(w.body)).not.toContain("+49");
     expect((await call("GET", "/schedule/week?start=2026-02-31")).status).toBe(
@@ -121,8 +133,6 @@ describe("assign and remove", () => {
       locationId: g5,
       start: "18:00",
       end: "19:00",
-      shiftStart: "18:00",
-      shiftEnd: "19:00",
     });
     expect(clash.status).toBe(400);
     expect(clash.body.reasons[0]).toMatchObject({
@@ -264,5 +274,210 @@ describe("deactivation with assignments", () => {
       (await call("POST", `/locations/${g5}/deactivate`, { version: 1 })).body
         .active,
     ).toBe(false);
+  });
+});
+
+describe("day overrides (Teil 2)", () => {
+  const override = (o: object) =>
+    call("POST", "/schedule/overrides", { locationId: g21, date: MON, ...o });
+
+  it("adds an evening shift outside opening hours and allows assigning into it", async () => {
+    const added = await override({
+      kind: "added",
+      start: "17:00",
+      end: "21:00",
+      people: 2,
+    });
+    expect(added.status).toBe(201);
+    expect(added.body).toMatchObject({
+      kind: "added",
+      baseStart: null,
+      start: "17:00",
+      people: 2,
+    });
+    const evening = await assign({
+      start: "19:00",
+      end: "21:00",
+      shiftStart: "17:00",
+      shiftEnd: "21:00",
+    });
+    expect(evening.status).toBe(201);
+    // outside opening hours without such a shift → still refused
+    const outside = await assign({
+      employeeId: ben,
+      start: "19:00",
+      end: "21:00",
+      shiftStart: "07:30",
+      shiftEnd: "19:00",
+    });
+    expect(outside.status).toBe(400);
+    const w = await call("GET", `/schedule/week?start=${MON}`);
+    expect(w.body.overrides).toHaveLength(1);
+  });
+
+  it("changing times asks only for non-fitting assignments, keeps and re-anchors the rest", async () => {
+    const full = (await assign()).body;
+    const part = (
+      await assign({ employeeId: ben, start: "08:00", end: "12:00" })
+    ).body;
+    const ask = await override({
+      kind: "changed",
+      baseStart: "07:30",
+      baseEnd: "19:00",
+      start: "07:30",
+      end: "15:00",
+      people: 2,
+    });
+    expect(ask.status).toBe(409);
+    expect(ask.body).toMatchObject({
+      error: "has_assignments",
+      count: 1,
+      names: ["Anna Müller"],
+    });
+    const done = await override({
+      kind: "changed",
+      baseStart: "07:30",
+      baseEnd: "19:00",
+      start: "07:30",
+      end: "15:00",
+      people: 2,
+      removeAssignments: true,
+    });
+    expect(done.status).toBe(201);
+    expect(ctx.schedule.rows.has(full.id)).toBe(false);
+    expect(ctx.schedule.rows.get(part.id)).toMatchObject({
+      shiftStart: "07:30",
+      shiftEnd: "15:00",
+    });
+    const h = await call(
+      "GET",
+      `/schedule/history?locationId=${g21}&start=${MON}`,
+    );
+    const actions = h.body.entries.map((e: { action: string }) => e.action);
+    expect(actions.slice(0, 2)).toEqual(["shift_changed", "unassigned"]);
+    // second override for the same standard shift and day
+    expect(
+      (
+        await override({
+          kind: "cancelled",
+          baseStart: "07:30",
+          baseEnd: "19:00",
+        })
+      ).body.error,
+    ).toBe("already_overridden");
+  });
+
+  it("people below assigned is allowed; cancel asks; reset re-anchors to the standard", async () => {
+    await assign({ start: "08:00", end: "12:00" });
+    await assign({ employeeId: ben, start: "08:00", end: "12:00" });
+    const fewer = await override({
+      kind: "changed",
+      baseStart: "07:30",
+      baseEnd: "19:00",
+      start: "07:30",
+      end: "19:00",
+      people: 1,
+    });
+    expect(fewer.status).toBe(201);
+    const id = fewer.body.id;
+    expect(
+      (
+        await call("PUT", `/schedule/overrides/${id}`, {
+          cancelled: true,
+          version: 1,
+        })
+      ).body,
+    ).toMatchObject({
+      error: "has_assignments",
+      count: 2,
+    });
+    const reset = await call("DELETE", `/schedule/overrides/${id}?version=1`);
+    expect(reset.status).toBe(204);
+    expect(
+      [...ctx.schedule.rows.values()].every(
+        (a) => a.shiftStart === "07:30" && a.shiftEnd === "19:00",
+      ),
+    ).toBe(true);
+  });
+
+  it("deleting an added shift asks for its assignments; versions are checked", async () => {
+    const added = (
+      await override({ kind: "added", start: "17:00", end: "21:00", people: 1 })
+    ).body;
+    await assign({
+      start: "19:00",
+      end: "21:00",
+      shiftStart: "17:00",
+      shiftEnd: "21:00",
+    });
+    expect(
+      (await call("DELETE", `/schedule/overrides/${added.id}?version=2`))
+        .status,
+    ).toBe(409);
+    expect(
+      (await call("DELETE", `/schedule/overrides/${added.id}?version=1`)).body
+        .error,
+    ).toBe("has_assignments");
+    expect(
+      (
+        await call(
+          "DELETE",
+          `/schedule/overrides/${added.id}?version=1&removeAssignments=true`,
+        )
+      ).status,
+    ).toBe(204);
+    expect(ctx.schedule.rows.size).toBe(0);
+    expect(
+      (
+        await call("PUT", `/schedule/overrides/${added.id}`, {
+          start: "17:00",
+          end: "20:00",
+          people: 1,
+          version: 1,
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  it("refuses unknown base shifts, past days, cancelling an added shift and assigning into a cancelled shift", async () => {
+    expect(
+      (
+        await override({
+          kind: "cancelled",
+          baseStart: "09:00",
+          baseEnd: "10:00",
+        })
+      ).body.error,
+    ).toBe("unknown_shift");
+    expect(
+      (
+        await override({
+          kind: "added",
+          date: "2026-11-09",
+          start: "17:00",
+          end: "21:00",
+          people: 1,
+        })
+      ).body.reasons[0].code,
+    ).toBe("past");
+    const added = (
+      await override({ kind: "added", start: "17:00", end: "21:00", people: 1 })
+    ).body;
+    expect(
+      (
+        await call("PUT", `/schedule/overrides/${added.id}`, {
+          cancelled: true,
+          version: 1,
+        })
+      ).status,
+    ).toBe(400);
+    await override({ kind: "cancelled", baseStart: "08:00", baseEnd: "10:00" });
+    const into = await assign({
+      start: "08:00",
+      end: "10:00",
+      shiftStart: "08:00",
+      shiftEnd: "10:00",
+    });
+    expect(into.body.error).toBe("unknown_shift");
   });
 });

@@ -15,6 +15,7 @@ import {
   type Assignment,
   coverageFor,
   coverageText,
+  effectiveShifts,
   evaluateCandidate,
   hoursText,
   isOutdated,
@@ -34,6 +35,7 @@ import { todayInBerlin } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { AssignDialog, type Shift } from "./AssignDialog";
 import { ScheduleHistory } from "./ScheduleHistory";
+import { ResetCancelled, ShiftEditor } from "./ShiftEditor";
 
 const SHORT: Record<Weekday, string> = {
   mon: "Mo",
@@ -129,7 +131,7 @@ function AssignmentRow({
           </span>
         )}
         {employee && !employee.active && <Pill>ausgeschieden</Pill>}
-        {isOutdated(a, location) && (
+        {isOutdated(a, location, week.overrides) && (
           <Pill className="border-dashed">passt nicht mehr</Pill>
         )}
         {conflicts.map((c) => (
@@ -192,9 +194,8 @@ function DayCell({
   const past = date < week.today;
   const editable = editableWeek && !past;
   const open = location.openingHours.some((o) => o.weekday === day);
-  const windows = location.staffingWindows
-    .filter((w) => w.weekday === day)
-    .sort((a, b) => a.start.localeCompare(b.start));
+  const [editing, setEditing] = useState<string | null>(null);
+  const { shifts, cancelled } = effectiveShifts(location, date, week.overrides);
   const here = week.assignments.filter(
     (a) => a.locationId === location.id && a.date === date,
   );
@@ -202,9 +203,9 @@ function DayCell({
     here.filter((a) => a.shiftStart === w.start && a.shiftEnd === w.end);
   const orphans = here.filter(
     (a) =>
-      !windows.some((w) => w.start === a.shiftStart && w.end === a.shiftEnd),
+      !shifts.some((w) => w.start === a.shiftStart && w.end === a.shiftEnd),
   );
-  const cov = coverageText(coverageFor(location, date, here));
+  const cov = coverageText(coverageFor(location, date, here, week.overrides));
   return (
     <section
       aria-label={`${SHORT[day]} ${formatDate(date, false)}`}
@@ -227,47 +228,114 @@ function DayCell({
           </span>
         )}
       </h3>
-      {windows.length === 0 && here.length === 0 && (
+      {shifts.length === 0 && cancelled.length === 0 && here.length === 0 && (
         <p className="text-muted-foreground">
           {open ? "kein Bedarf" : "geschlossen"}
         </p>
       )}
-      {windows.map((w) => (
-        <div
-          key={`${w.start}-${w.end}`}
-          className="grid gap-1 border-t pt-1.5 first-of-type:border-0 first-of-type:pt-0"
-        >
-          <span className="text-caption tabular-nums text-ink-2">
-            {w.start}–{w.end} · Soll {w.people}
-          </span>
-          <ul className="grid gap-1">
-            {inShift(w).map((a) => (
-              <AssignmentRow
-                key={a.id}
-                a={a}
-                week={week}
+      {shifts.map((w) => {
+        const key = `${w.start}-${w.end}`;
+        const label = `${SHORT[day]} ${formatDate(date, false)} ${w.start}–${w.end}`;
+        return (
+          <div
+            key={key}
+            className="grid gap-1 border-t pt-1.5 first-of-type:border-0 first-of-type:pt-0"
+          >
+            <span className="flex flex-wrap items-center gap-1 text-caption tabular-nums text-ink-2">
+              {w.start}–{w.end} · Soll {w.people}
+              {w.source === "added" && <Pill variant="brand">zusätzlich</Pill>}
+              {w.source === "changed" && w.base && (
+                <Pill variant="brand">
+                  angepasst (normal {w.base.start}–{w.base.end})
+                </Pill>
+              )}
+              {editable && editing !== key && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5"
+                  onClick={() => setEditing(key)}
+                  aria-label={`${label} anpassen`}
+                >
+                  anpassen
+                </Button>
+              )}
+            </span>
+            {editing === key && (
+              <ShiftEditor
                 location={location}
-                editable={editable}
+                date={date}
+                shift={w}
+                onDone={() => setEditing(null)}
               />
-            ))}
-          </ul>
+            )}
+            <ul className="grid gap-1">
+              {inShift(w).map((a) => (
+                <AssignmentRow
+                  key={a.id}
+                  a={a}
+                  week={week}
+                  location={location}
+                  editable={editable}
+                />
+              ))}
+            </ul>
+            {editable && (
+              <div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2"
+                  onClick={() =>
+                    onAssign({ location, date, start: w.start, end: w.end })
+                  }
+                  aria-label={`${label} einteilen`}
+                >
+                  + einteilen
+                </Button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {cancelled.map((c) => (
+        <div
+          key={c.override.id}
+          className="flex flex-wrap items-center gap-1 border-t pt-1.5 text-caption"
+        >
+          <span className="tabular-nums text-ink-2 line-through">
+            {c.base.start}–{c.base.end}
+          </span>
+          <Pill>entfällt</Pill>
           {editable && (
-            <div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2"
-                onClick={() =>
-                  onAssign({ location, date, start: w.start, end: w.end })
-                }
-                aria-label={`${SHORT[day]} ${formatDate(date, false)} ${w.start}–${w.end} einteilen`}
-              >
-                + einteilen
-              </Button>
-            </div>
+            <ResetCancelled
+              override={c.override}
+              label={`${SHORT[day]} ${formatDate(date, false)} ${c.base.start}–${c.base.end}`}
+            />
           )}
         </div>
       ))}
+      {editable && (
+        <div className="border-t pt-1.5">
+          {editing === "new" ? (
+            <ShiftEditor
+              location={location}
+              date={date}
+              onDone={() => setEditing(null)}
+            />
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => setEditing("new")}
+              aria-label={`${SHORT[day]} ${formatDate(date, false)} Schicht hinzufügen`}
+            >
+              + Schicht
+            </Button>
+          )}
+        </div>
+      )}
       {orphans.length > 0 && (
         <div className="grid gap-1 border-t pt-1.5">
           <span className="text-caption text-ink-2">Weitere Einteilungen</span>

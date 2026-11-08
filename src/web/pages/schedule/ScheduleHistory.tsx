@@ -20,8 +20,35 @@ const SHORT: Record<Weekday, string> = {
 const REASONS: Record<string, string> = {
   employee_deactivated: "Mitarbeiter deaktiviert",
   location_deactivated: "Standort deaktiviert",
+  shift_changed: "Schicht geändert",
 };
-type Snap = { date: string; employeeId: string; start: string; end: string };
+type Snap = {
+  date: string;
+  employeeId?: string;
+  start: string | null;
+  end: string | null;
+  kind?: string;
+  baseStart?: string | null;
+  baseEnd?: string | null;
+  people?: number | null;
+};
+const SHIFT_LABELS: Record<string, string> = {
+  shift_added: "Schicht hinzugefügt",
+  shift_changed: "Schicht angepasst",
+  shift_cancelled: "Schicht entfällt",
+  shift_reset: "Schicht zurückgesetzt",
+  shift_deleted: "Schicht gelöscht",
+};
+/** "Mo 16.11. 07:30–15:00 · 2 Personen (normal 07:30–19:00)" */
+function describeShift(s: Snap): string {
+  const day = `${SHORT[weekdayOf(s.date)]} ${formatDate(s.date, false)}`;
+  const base = s.baseStart ? `${s.baseStart}–${s.baseEnd}` : null;
+  if (s.kind === "cancelled") return `${day} ${base}`;
+  const people = s.people
+    ? ` · ${s.people} ${s.people === 1 ? "Person" : "Personen"}`
+    : "";
+  return `${day} ${s.start}–${s.end}${people}${base ? ` (normal ${base})` : ""}`;
+}
 
 // Tolerant on `changes` so one unexpected entry can't hide the whole history.
 const ScheduleHistoryResponse = z.object({
@@ -99,11 +126,14 @@ export function ScheduleHistory({
             return (
               <li key={entry.id}>
                 <span className="font-medium">
-                  {entry.action === "assigned" ? "eingeteilt" : "ausgeteilt"}
+                  {SHIFT_LABELS[entry.action] ??
+                    (entry.action === "assigned" ? "eingeteilt" : "ausgeteilt")}
                 </span>
                 {reason && ` (${REASONS[reason] ?? reason})`}
                 {snap &&
-                  `: ${entry.employeeName ?? name(snap.employeeId)}, ${SHORT[weekdayOf(snap.date)]} ${formatDate(snap.date, false)} ${snap.start}–${snap.end}`}
+                  (SHIFT_LABELS[entry.action]
+                    ? `: ${describeShift(snap)}`
+                    : `: ${entry.employeeName ?? name(snap.employeeId ?? "")}, ${SHORT[weekdayOf(snap.date)]} ${formatDate(snap.date, false)} ${snap.start}–${snap.end}`)}
                 <span className="text-muted-foreground">
                   {" "}
                   – von {entry.actorEmail ?? "unbekannt"} am{" "}

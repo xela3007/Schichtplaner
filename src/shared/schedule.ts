@@ -13,7 +13,7 @@ import {
   weekdayOf,
 } from "./availability.js";
 import { EmployeeLocation, isTrainedAt, preferenceAt } from "./employees.js";
-import { TimeOfDay, TimeRange, type Weekday } from "./locations.js";
+import { TimeOfDay, TimeRange } from "./locations.js";
 
 // Schichtplan (Teil 1): assignments of employees to shifts, plus the pure
 // rule engine shared by the UI (hints, ranking) and the API (enforcing blocks).
@@ -79,6 +79,77 @@ export const ScheduleEmployee = z.object({
 });
 export type ScheduleEmployee = z.infer<typeof ScheduleEmployee>;
 
+// --- Day overrides (Teil 2) ---------------------------------------------------------
+export const OVERRIDE_KINDS = ["added", "changed", "cancelled"] as const;
+export const ShiftOverride = z.object({
+  id: z.uuid(),
+  locationId: z.uuid(),
+  date: z.string(),
+  kind: z.enum(OVERRIDE_KINDS),
+  baseStart: z.string().nullable(),
+  baseEnd: z.string().nullable(),
+  start: z.string().nullable(),
+  end: z.string().nullable(),
+  people: z.number().int().nullable(),
+  version: Version,
+  updatedAt: z.iso.datetime({ offset: true }),
+});
+export type ShiftOverride = z.infer<typeof ShiftOverride>;
+
+const People = z
+  .number({ error: "Bitte eine Personenzahl angeben." })
+  .int({ error: "Bitte eine ganze Zahl angeben." })
+  .min(1, { error: "Mindestens 1 Person." })
+  .max(20, { error: "Höchstens 20 Personen." });
+const Times = { start: TimeOfDay, end: TimeOfDay, people: People };
+const Base = { baseStart: TimeOfDay, baseEnd: TimeOfDay };
+const Where = {
+  locationId: z.uuid(),
+  date: IsoDate,
+  removeAssignments: z.boolean().optional(),
+};
+const startBeforeEnd = (v: object) => {
+  const t = v as { start?: string; end?: string };
+  return !t.start || !t.end || t.start < t.end;
+};
+
+export const OverrideInput = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("added"), ...Where, ...Times }),
+    z.object({ kind: z.literal("changed"), ...Where, ...Base, ...Times }),
+    z.object({ kind: z.literal("cancelled"), ...Where, ...Base }),
+  ])
+  .refine(startBeforeEnd, {
+    path: ["end"],
+    error: "Das Ende muss nach dem Beginn liegen.",
+  });
+export type OverrideInput = z.infer<typeof OverrideInput>;
+
+export const OverrideTimes = z.object(Times).refine(startBeforeEnd, {
+  path: ["end"],
+  error: "Das Ende muss nach dem Beginn liegen.",
+});
+export type OverrideTimes = z.infer<typeof OverrideTimes>;
+
+export const OverrideUpdate = z.union([
+  z
+    .object({
+      ...Times,
+      version: Version,
+      removeAssignments: z.boolean().optional(),
+    })
+    .refine(startBeforeEnd, {
+      path: ["end"],
+      error: "Das Ende muss nach dem Beginn liegen.",
+    }),
+  z.object({
+    cancelled: z.literal(true),
+    version: Version,
+    removeAssignments: z.boolean().optional(),
+  }),
+]);
+export type OverrideUpdate = z.infer<typeof OverrideUpdate>;
+
 export const ScheduleWeek = z.object({
   start: z.string(),
   today: z.string(),
@@ -87,6 +158,7 @@ export const ScheduleWeek = z.object({
   assignments: z.array(Assignment),
   absences: z.array(Absence),
   rules: z.array(AvailabilityRule),
+  overrides: z.array(ShiftOverride).default([]),
 });
 export type ScheduleWeek = z.infer<typeof ScheduleWeek>;
 
@@ -262,6 +334,150 @@ export function evaluateCandidate(
   return { blocks, warnings };
 }
 
+// --- Effective shifts of a day (standard demand + day overrides) ------------------
+export type EffectiveShift = {
+  start: string;
+  end: string;
+  people: number;
+  source: "standard" | "added" | "changed";
+  base?: { start: string; end: string };
+  override?: ShiftOverride;
+};
+export type CancelledShift = {
+  base: { start: string; end: string };
+  override: ShiftOverride;
+  baseExists: boolean;
+};
+
+export function effectiveShifts(
+  location:
+    | Pick<ScheduleLocation, "id" | "staffingWindows">
+    | Pick<ScheduleLocation, "staffingWindows">,
+  date: string,
+  overrides: readonly ShiftOverride[] = [],
+): { shifts: EffectiveShift[]; cancelled: CancelledShift[] } {
+  const day = weekdayOf(date);
+  const locId = "id" in location ? location.id : undefined;
+  const mine = overrides.filter(
+    (o) => o.date === date && (locId === undefined || o.locationId === locId),
+  );
+  const byBase = (start: string, end: string) =>
+    mine.find(
+      (o) => o.kind !== "added" && o.baseStart === start && o.baseEnd === end,
+    );
+  const windows = location.staffingWindows.filter((w) => w.weekday === day);
+  const shifts: EffectiveShift[] = [];
+  // Overrides whose standard shift was edited later in the demand keep owning
+  // that slot (PO: "Abweichung gilt weiter, Änderung wirkt nur auf Tage ohne
+  // Abweichung"). Demand windows have no identity, so a new standard window
+  // that shares its start or end with such an orphaned base counts as the same
+  // shift and is suppressed on that day.
+  const orphans = mine.filter(
+    (o) =>
+      o.kind !== "added" &&
+      !windows.some((w) => w.start === o.baseStart && w.end === o.baseEnd),
+  );
+  const ownedByOrphan = (w: { start: string; end: string }) =>
+    orphans.some((o) => o.baseStart === w.start || o.baseEnd === w.end);
+  for (const w of windows) {
+    const o = byBase(w.start, w.end);
+    if (!o && ownedByOrphan(w)) continue;
+    if (!o)
+      shifts.push({
+        start: w.start,
+        end: w.end,
+        people: w.people,
+        source: "standard",
+      });
+    else if (o.kind === "changed")
+      shifts.push({
+        start: o.start as string,
+        end: o.end as string,
+        people: o.people as number,
+        source: "changed",
+        base: { start: w.start, end: w.end },
+        override: o,
+      });
+  }
+  // a changed override whose base vanished from the demand still applies (PO)
+  for (const o of mine.filter((x) => x.kind === "changed")) {
+    if (!windows.some((w) => w.start === o.baseStart && w.end === o.baseEnd)) {
+      shifts.push({
+        start: o.start as string,
+        end: o.end as string,
+        people: o.people as number,
+        source: "changed",
+        base: { start: o.baseStart as string, end: o.baseEnd as string },
+        override: o,
+      });
+    }
+  }
+  for (const o of mine.filter((x) => x.kind === "added")) {
+    shifts.push({
+      start: o.start as string,
+      end: o.end as string,
+      people: o.people as number,
+      source: "added",
+      override: o,
+    });
+  }
+  const cancelled = mine
+    .filter((o) => o.kind === "cancelled")
+    .map((o) => ({
+      base: { start: o.baseStart as string, end: o.baseEnd as string },
+      override: o,
+      baseExists: windows.some(
+        (w) => w.start === o.baseStart && w.end === o.baseEnd,
+      ),
+    }));
+  shifts.sort(
+    (a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end),
+  );
+  return { shifts, cancelled };
+}
+
+/** Assignment time is fine inside the opening hours, or inside the effective shift it is anchored to. */
+export function assignmentWindowOk(
+  location: Pick<ScheduleLocation, "openingHours" | "staffingWindows"> & {
+    id?: string;
+  },
+  overrides: readonly ShiftOverride[],
+  a: Pick<Assignment, "date" | "start" | "end" | "shiftStart" | "shiftEnd">,
+): boolean {
+  if (insideOpening(location, a.date, a.start, a.end)) return true;
+  const shift = effectiveShifts(location, a.date, overrides).shifts.find(
+    (s) => s.start === a.shiftStart && s.end === a.shiftEnd,
+  );
+  return !!shift && shift.start <= a.start && a.end <= shift.end;
+}
+
+/**
+ * Assignments anchored to a shift whose times change: those that still fit
+ * the new times are kept (re-anchored), the rest must be removed after a
+ * confirmation. `to = null` = the shift disappears (cancel / delete).
+ */
+export function affectedAssignments(
+  assignments: readonly Assignment[],
+  locationId: string,
+  date: string,
+  anchor: { start: string; end: string },
+  to: { start: string; end: string } | null,
+): { keep: Assignment[]; remove: Assignment[] } {
+  const anchored = assignments.filter(
+    (a) =>
+      a.locationId === locationId &&
+      a.date === date &&
+      a.shiftStart === anchor.start &&
+      a.shiftEnd === anchor.end,
+  );
+  if (!to) return { keep: [], remove: anchored };
+  const fits = (a: Assignment) => to.start <= a.start && a.end <= to.end;
+  return {
+    keep: anchored.filter(fits),
+    remove: anchored.filter((a) => !fits(a)),
+  };
+}
+
 // --- Coverage ----------------------------------------------------------------------
 export type CoverageStatus = "covered" | "gap" | "over";
 export type CoverageSegment = {
@@ -274,12 +490,14 @@ export type CoverageSegment = {
 
 /** Minute-exact coverage of one location and day: summed demand vs assigned people. */
 export function coverageFor(
-  location: Pick<ScheduleLocation, "openingHours" | "staffingWindows">,
+  location: Pick<ScheduleLocation, "openingHours" | "staffingWindows"> & {
+    id?: string;
+  },
   date: string,
   assignments: readonly Pick<Assignment, "date" | "start" | "end">[],
+  overrides: readonly ShiftOverride[] = [],
 ): CoverageSegment[] {
-  const day: Weekday = weekdayOf(date);
-  const windows = location.staffingWindows.filter((w) => w.weekday === day);
+  const windows = effectiveShifts(location, date, overrides).shifts;
   const asg = assignments.filter((a) => a.date === date);
   const bounds = [
     ...new Set(
@@ -343,14 +561,15 @@ export function coverageText(segments: readonly CoverageSegment[]): {
 /** "passt nicht mehr": the shift no longer exists that day, or the time left the opening hours. */
 export function isOutdated(
   a: Pick<Assignment, "date" | "start" | "end" | "shiftStart" | "shiftEnd">,
-  location: Pick<ScheduleLocation, "openingHours" | "staffingWindows">,
+  location: Pick<ScheduleLocation, "openingHours" | "staffingWindows"> & {
+    id?: string;
+  },
+  overrides: readonly ShiftOverride[] = [],
 ): boolean {
-  const day = weekdayOf(a.date);
-  const shiftExists = location.staffingWindows.some(
-    (w) =>
-      w.weekday === day && w.start === a.shiftStart && w.end === a.shiftEnd,
+  const shiftExists = effectiveShifts(location, a.date, overrides).shifts.some(
+    (s) => s.start === a.shiftStart && s.end === a.shiftEnd,
   );
-  return !shiftExists || !insideOpening(location, a.date, a.start, a.end);
+  return !shiftExists || !assignmentWindowOk(location, overrides, a);
 }
 
 export function insideOpening(

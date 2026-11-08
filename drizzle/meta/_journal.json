@@ -85,6 +85,13 @@
       "when": 1794149555201,
       "tag": "0011_seed_schedule_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794152558434,
+      "tag": "0012_shift_overrides",
+      "breakpoints": true
     }
   ]
 }

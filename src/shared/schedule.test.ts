@@ -34,6 +34,7 @@ const emp = (o: Partial<ScheduleEmployee> = {}): ScheduleEmployee => ({
   ...o,
 });
 let n = 0;
+
 const asg = (o: Partial<Assignment>): Assignment => ({
   id: `01a1bb3f-0000-7000-8000-0000000009${String(++n).padStart(2, "0")}`,
   locationId: L1,
@@ -339,5 +340,182 @@ describe("ranking", () => {
     expect(
       rankCandidates(week, L1, slot).map((r) => r.employee.lastName),
     ).toEqual(["Bevorzugt", "Neutral", "Fremd", "Blockiert"]);
+  });
+});
+
+describe("day overrides (Teil 2)", () => {
+  const LOC = "01a1bb3f-0000-7000-8000-000000000031";
+  const loc = {
+    id: LOC,
+    openingHours: [{ weekday: "mon" as const, start: "07:30", end: "19:00" }],
+    staffingWindows: [
+      { weekday: "mon", start: "07:30", end: "19:00", people: 2 },
+      { weekday: "mon", start: "08:00", end: "10:00", people: 2 },
+    ],
+  };
+  const ov = (o: Partial<import("./schedule.js").ShiftOverride>) => ({
+    id: "01a1bb3f-0000-7000-8000-000000000081",
+    locationId: LOC,
+    date: MON,
+    kind: "added" as const,
+    baseStart: null,
+    baseEnd: null,
+    start: null,
+    end: null,
+    people: null,
+    version: 1,
+    updatedAt: T,
+    ...o,
+  });
+  it("applies added, changed and cancelled; vanished base keeps a change", async () => {
+    const { effectiveShifts } = await import("./schedule.js");
+    const r = effectiveShifts(loc, MON, [
+      ov({ kind: "added", start: "17:00", end: "21:00", people: 2 }),
+      ov({
+        id: "01a1bb3f-0000-7000-8000-000000000082",
+        kind: "changed",
+        baseStart: "07:30",
+        baseEnd: "19:00",
+        start: "07:30",
+        end: "15:00",
+        people: 3,
+      }),
+      ov({
+        id: "01a1bb3f-0000-7000-8000-000000000083",
+        kind: "cancelled",
+        baseStart: "08:00",
+        baseEnd: "10:00",
+      }),
+    ]);
+    expect(
+      r.shifts.map((s) => `${s.start}-${s.end}:${s.people}:${s.source}`),
+    ).toEqual(["07:30-15:00:3:changed", "17:00-21:00:2:added"]);
+    expect(r.cancelled[0]?.base).toEqual({ start: "08:00", end: "10:00" });
+    const vanished = effectiveShifts({ ...loc, staffingWindows: [] }, MON, [
+      ov({
+        kind: "changed",
+        baseStart: "07:30",
+        baseEnd: "19:00",
+        start: "09:00",
+        end: "12:00",
+        people: 1,
+      }),
+    ]);
+    expect(vanished.shifts.map((s) => s.source)).toEqual(["changed"]);
+    // other days and locations are not affected
+    expect(
+      effectiveShifts(loc, "2026-11-23", [
+        ov({ kind: "added", start: "17:00", end: "21:00", people: 2 }),
+      ]).shifts,
+    ).toHaveLength(2);
+  });
+
+  it("coverage, outdated and window checks use the effective shifts", async () => {
+    const { coverageFor, coverageText, isOutdated, assignmentWindowOk } =
+      await import("./schedule.js");
+    const added = ov({
+      kind: "added",
+      start: "17:00",
+      end: "21:00",
+      people: 1,
+    });
+    const evening = asg({
+      start: "18:00",
+      end: "21:00",
+      shiftStart: "17:00",
+      shiftEnd: "21:00",
+    });
+    expect(
+      coverageText(coverageFor(loc, MON, [evening], [added])).lines,
+    ).toContain("Lücke 17:00–18:00 (3 fehlt)");
+    expect(assignmentWindowOk(loc, [added], evening)).toBe(true);
+    expect(assignmentWindowOk(loc, [], evening)).toBe(false);
+    expect(isOutdated(evening, loc, [added])).toBe(false);
+    expect(isOutdated(evening, loc, [])).toBe(true);
+    const cancelled = ov({
+      kind: "cancelled",
+      baseStart: "08:00",
+      baseEnd: "10:00",
+    });
+    const lines = coverageText(coverageFor(loc, MON, [], [cancelled])).lines;
+    expect(lines).toEqual(["Lücke 07:30–19:00 (2 fehlt)"]);
+  });
+
+  it("affected assignments: fitting ones stay, the rest is listed", async () => {
+    const { affectedAssignments } = await import("./schedule.js");
+    const full = asg({
+      start: "07:30",
+      end: "19:00",
+      shiftStart: "07:30",
+      shiftEnd: "19:00",
+    });
+    const part = asg({
+      employeeId: B,
+      start: "08:00",
+      end: "12:00",
+      shiftStart: "07:30",
+      shiftEnd: "19:00",
+    });
+    const other = asg({
+      start: "08:00",
+      end: "10:00",
+      shiftStart: "08:00",
+      shiftEnd: "10:00",
+    });
+    const r = affectedAssignments(
+      [full, part, other],
+      LOC,
+      MON,
+      { start: "07:30", end: "19:00" },
+      { start: "07:30", end: "15:00" },
+    );
+    expect(r.keep).toEqual([part]);
+    expect(r.remove).toEqual([full]);
+    expect(
+      affectedAssignments(
+        [full, part, other],
+        LOC,
+        MON,
+        { start: "07:30", end: "19:00" },
+        null,
+      ).remove,
+    ).toHaveLength(2);
+  });
+});
+
+describe("demand edited after an override", () => {
+  it("the override keeps owning its slot; untouched windows stay", async () => {
+    const { effectiveShifts } = await import("./schedule.js");
+    const L = "01a1bb3f-0000-7000-8000-000000000031";
+    const loc = {
+      id: L,
+      staffingWindows: [
+        { weekday: "mon", start: "07:30", end: "16:00", people: 2 }, // was 07:30–17:00
+        { weekday: "mon", start: "08:00", end: "10:00", people: 2 },
+      ],
+    };
+    const o = {
+      id: "01a1bb3f-0000-7000-8000-000000000081",
+      locationId: L,
+      date: MON,
+      kind: "changed" as const,
+      baseStart: "07:30",
+      baseEnd: "17:00",
+      start: "07:30",
+      end: "15:00",
+      people: 2,
+      version: 1,
+      updatedAt: T,
+    };
+    const r = effectiveShifts(loc, MON, [o]).shifts.map(
+      (s) => `${s.start}-${s.end}:${s.source}`,
+    );
+    expect(r).toEqual(["07:30-15:00:changed", "08:00-10:00:standard"]);
+    // other Mondays get the new standard
+    expect(
+      effectiveShifts(loc, "2026-11-23", [o]).shifts.map(
+        (s) => `${s.start}-${s.end}`,
+      ),
+    ).toEqual(["07:30-16:00", "08:00-10:00"]);
   });
 });

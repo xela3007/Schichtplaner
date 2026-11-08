@@ -13,4 +13,9 @@ export const AUDIT_ACTION_LABELS: Record<AuditEntry["action"], string> = {
   rule_deleted: "Regel gelöscht",
   assigned: "eingeteilt",
   unassigned: "ausgeteilt",
+  shift_added: "Schicht hinzugefügt",
+  shift_changed: "Schicht angepasst",
+  shift_cancelled: "Schicht entfällt",
+  shift_reset: "Schicht zurückgesetzt",
+  shift_deleted: "Schicht gelöscht",
 };
