@@ -2,14 +2,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
+// Tinted fill + coloured hairline; text stays in --ink for WCAG AA
+// (success/warning tokens are too light for small text on white).
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm",
+  "relative w-full rounded-md border px-4 py-3 text-sm text-ink",
   {
     variants: {
       variant: {
-        default: "bg-card text-card-foreground",
-        destructive: "border-destructive/50 bg-card text-destructive",
-        success: "border-success/50 bg-card text-success",
+        default: "border-border bg-card",
+        destructive: "border-destructive/40 bg-destructive-100",
+        success: "border-success/40 bg-success-100",
       },
     },
     defaultVariants: { variant: "default" },
@@ -38,7 +40,7 @@ export function AlertTitle({
   return (
     <div
       data-slot="alert-title"
-      className={cn("font-medium", className)}
+      className={cn("font-semibold", className)}
       {...props}
     />
   );
@@ -51,7 +53,7 @@ export function AlertDescription({
   return (
     <div
       data-slot="alert-description"
-      className={cn("mt-1 text-sm", className)}
+      className={cn("mt-1 text-sm leading-normal", className)}
       {...props}
     />
   );

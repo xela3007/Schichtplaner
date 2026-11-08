@@ -6,6 +6,7 @@ import { PageShell } from "@/components/PageShell";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { apiFetch } from "@/lib/api";
 import { compactWeek, kindLabel } from "@/lib/locations";
 import { useCan } from "@/lib/permissions";
@@ -27,7 +28,7 @@ export function LocationListPage() {
   return (
     <PageShell>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Standorte</h1>
+        <h1 className="font-heading text-h3 font-bold">Standorte</h1>
         {canManage && (
           <Link to="/standorte/neu" className={buttonVariants()}>
             Standort anlegen
@@ -39,6 +40,7 @@ export function LocationListPage() {
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
+            className="size-4 rounded-xs accent-brand-700"
             checked={showInactive}
             onChange={(e) => setShowInactive(e.target.checked)}
           />
@@ -73,15 +75,13 @@ export function LocationListPage() {
               to={`/standorte/${location.id}`}
               className="block rounded-xl focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
-              <Card className={location.active ? "" : "opacity-70"}>
+              <Card
+                className={`transition-[transform,box-shadow,border-color] duration-[var(--dur-fast)] hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lg ${location.active ? "" : "opacity-70"}`}
+              >
                 <CardHeader>
                   <CardTitle className="flex flex-wrap items-center gap-2">
                     {location.name}
-                    {!location.active && (
-                      <span className="rounded-md border px-2 py-0.5 text-xs font-normal text-muted-foreground">
-                        deaktiviert
-                      </span>
-                    )}
+                    {!location.active && <Pill>deaktiviert</Pill>}
                   </CardTitle>
                   <p className="text-sm text-muted-foreground">
                     {kindLabel(location.kind)}

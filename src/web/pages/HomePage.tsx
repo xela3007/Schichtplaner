@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Status } from "@/components/ui/status";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -53,24 +54,20 @@ function HealthCard() {
         {health.data && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1">
             <dt className="text-muted-foreground">API</dt>
-            <dd
-              className={
-                health.data.status === "ok" ? "text-success" : "text-warning"
-              }
-            >
-              {health.data.status === "ok" ? "läuft" : "eingeschränkt"}
+            <dd>
+              <Status tone={health.data.status === "ok" ? "ok" : "warn"}>
+                {health.data.status === "ok" ? "läuft" : "eingeschränkt"}
+              </Status>
             </dd>
             <dt className="text-muted-foreground">Datenbank</dt>
-            <dd
-              className={
-                health.data.checks.database === "ok"
-                  ? "text-success"
-                  : "text-destructive"
-              }
-            >
-              {health.data.checks.database === "ok"
-                ? "erreichbar"
-                : "nicht erreichbar"}
+            <dd>
+              <Status
+                tone={health.data.checks.database === "ok" ? "ok" : "error"}
+              >
+                {health.data.checks.database === "ok"
+                  ? "erreichbar"
+                  : "nicht erreichbar"}
+              </Status>
             </dd>
             <dt className="text-muted-foreground">Version</dt>
             <dd>
@@ -154,7 +151,7 @@ function AccountCard() {
 export function HomePage() {
   return (
     <PageShell>
-      <h1 className="text-2xl font-semibold">Willkommen</h1>
+      <h1 className="font-heading text-h3 font-bold">Willkommen</h1>
       <HealthCard />
       <AccountCard />
     </PageShell>

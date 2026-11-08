@@ -1,0 +1,146 @@
+/* Dinexis Design System tokens — copied VERBATIM (byte-identical :root block)
+   from colors_and_type.css of the organisation's design system artifact
+   PJ9eahksQobxufhrrxZRCi (ADR-011). Do not edit or reformat: change the design
+   system and re-sync. Excluded from Biome formatting on purpose. */
+:root {
+  /* ========================================================================
+     1. COLOR — BASE PALETTE
+     Cool neutrals (white paper, slate/navy ink) + vivid cyan & magenta.
+     ======================================================================== */
+
+  /* Neutrals (neutral charcoal-gray scale — the site's "grau") */
+  --paper:          #FFFFFF;  /* page background — clean white                */
+  --paper-2:        #F4F5F6;  /* alternate section background — light gray    */
+  --paper-3:        #E7E8EA;  /* deeper fill / hairline blocks                */
+  --surface:        #FFFFFF;  /* cards, sheets, inputs                        */
+  --surface-inset:  #F3F4F5;  /* inset wells inside white cards               */
+
+  --ink:            #2C2D30;  /* primary text / headlines — charcoal          */
+  --ink-2:          #5D5E63;  /* secondary text / body                        */
+  --ink-3:          #8C8D93;  /* muted text / captions / placeholders         */
+  --ink-on-brand:   #16171A;  /* DARK text used on bright-cyan selection fills */
+
+  --border:         #E5E6E8;  /* default hairline                             */
+  --border-strong:  #CDCED2;  /* stronger divider / input border              */
+
+  /* Brand — signature cyan #0CE8F6.
+     The pure tone is bright: use it for FILLS / blocks / active borders /
+     glows / the logo accent. For TEXT or ICONS on light, use --brand-700. */
+  --brand:          #0CE8F6;  /* signature cyan — fills, highlights, logo     */
+  --brand-600:      #16D2E0;  /* hover (slightly deeper cyan fill)            */
+  --brand-700:      #0A7480;  /* deep cyan — readable text/icon on light      */
+  --brand-300:      #7DEAF4;  /* soft cyan — accents on dark surfaces         */
+  --brand-100:      #D6F7FB;  /* tinted background                           */
+  --brand-050:      #ECFDFE;  /* faintest tint                               */
+
+  /* Secondary accent — magenta #E03D80 (the second logo dot).
+     Used sparingly: a badge, an alternate highlight, the "x" energy. */
+  --magenta:        #E03D80;
+  --magenta-600:    #CB2F6F;  /* readable magenta fill (white text)          */
+  --magenta-700:    #A8235A;  /* deep magenta — text on light                */
+  --magenta-100:    #FBDDE9;  /* tinted background                           */
+  --magenta-050:    #FEF0F5;  /* faintest tint                               */
+
+  /* Graphite — dark sections, footers, and PRIMARY (pill) buttons.
+     The site's dark surfaces are a warm-neutral charcoal GRAY, not navy. */
+  --graphite-900:   #202124;  /* near-black — primary pill buttons            */
+  --graphite-800:   #2A2C2F;  /* button hover / deepest panels                */
+  --graphite-700:   #313338;  /* dark feature section background              */
+  --graphite-600:   #3D3F44;  /* cards / hairlines on dark                    */
+  --graphite-500:   #565960;  /* muted text on dark / dividers                */
+  /* legacy aliases */
+  --night:          var(--graphite-700);
+  --night-2:        var(--graphite-800);
+
+  /* Signature GRADIENT — cyan → magenta (through a blue-violet midtone).
+     Used on accent words, key icons/strokes, the occasional rule. */
+  --gradient-brand:    linear-gradient(95deg, #0CE8F6 0%, #5BB0F0 30%, #9A6FE0 62%, #E03D80 100%); /* @kind color */
+  --gradient-brand-90: linear-gradient(90deg, #0CE8F6 0%, #9A6FE0 55%, #E03D80 100%); /* @kind color */
+
+  /* ========================================================================
+     2. COLOR — SEMANTIC
+     ======================================================================== */
+  --success:        #1E8E5A;  --success-100: #DEF1E6;
+  --warning:        #C0841A;  --warning-100: #FBEFD4;
+  --danger:         #C8472F;  --danger-100:  #FBE3DD;
+  --info:           #2E6CC9;  --info-100:    #DEEAFB;
+
+  --focus-ring:     0 0 0 3px rgba(12,232,246,.40);
+
+  /* ========================================================================
+     3. TYPOGRAPHY — FAMILIES  (⚠ SUBSTITUTES, confirm real brand fonts)
+     ======================================================================== */
+  --font-display: 'Schibsted Grotesk', 'Segoe UI', system-ui, sans-serif;
+  --font-body:    'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  /* ========================================================================
+     4. TYPOGRAPHY — TYPE SCALE  (fluid where useful)
+     ======================================================================== */
+  --fs-display:  clamp(2.75rem, 1.6rem + 4.6vw, 4.5rem);   /* @kind other */ /* 44 → 72 */
+  --fs-h1:       clamp(2.25rem, 1.4rem + 3.2vw, 3.5rem);   /* @kind other */ /* 36 → 56 */
+  --fs-h2:       clamp(1.75rem, 1.2rem + 2.0vw, 2.5rem);   /* @kind other */ /* 28 → 40 */
+  --fs-h3:       1.75rem;   /* 28 */
+  --fs-h4:       1.375rem;  /* 22 */
+  --fs-lead:     1.25rem;   /* 20 — intro paragraphs */
+  --fs-body:     1.0625rem; /* 17 — default body */
+  --fs-sm:       0.9375rem; /* 15 */
+  --fs-caption:  0.8125rem; /* 13 */
+  --fs-overline: 0.75rem;   /* 12 — uppercase labels */
+
+  --lh-tight:   1.05;  /* @kind font */
+  --lh-snug:    1.18;  /* @kind font */
+  --lh-normal:  1.5;   /* @kind font */
+  --lh-relaxed: 1.65;  /* @kind font */
+
+  --ls-tight:   -0.02em;  /* @kind font */
+  --ls-snug:    -0.01em;  /* @kind font */
+  --ls-normal:  0;        /* @kind font */
+  --ls-wide:    0.08em;   /* overlines  @kind font */
+
+  --fw-regular: 400;  /* @kind font */
+  --fw-medium:  500;  /* @kind font */
+  --fw-semi:    600;  /* @kind font */
+  --fw-bold:    700;  /* @kind font */
+  --fw-black:   800;  /* @kind font */
+
+  /* ========================================================================
+     5. SPACING  (4px base scale)
+     ======================================================================== */
+  --s-1: 4px;   --s-2: 8px;   --s-3: 12px;  --s-4: 16px;  --s-5: 20px;
+  --s-6: 24px;  --s-8: 32px;  --s-10: 40px; --s-12: 48px; --s-16: 64px;
+  --s-20: 80px; --s-24: 96px; --s-32: 128px;
+
+  --gutter: clamp(20px, 5vw, 80px);   /* @kind spacing */ /* page side padding */
+  --maxw:   1200px;                   /* @kind spacing */ /* content max-width */
+
+  /* ========================================================================
+     6. RADII
+     ======================================================================== */
+  --r-xs:   6px;
+  --r-sm:   10px;
+  --r-md:   12px;
+  --r-lg:   16px;
+  --r-xl:   22px;
+  --r-2xl:  28px;
+  --r-full: 999px;
+
+  /* ========================================================================
+     7. ELEVATION — soft, warm, low (premium minimal)
+     ======================================================================== */
+  --shadow-xs: 0 1px 2px rgba(16,24,28,.05);
+  --shadow-sm: 0 1px 2px rgba(16,24,28,.06), 0 1px 1px rgba(16,24,28,.04);
+  --shadow-md: 0 4px 16px -4px rgba(16,24,28,.11), 0 2px 6px -2px rgba(16,24,28,.07);
+  --shadow-lg: 0 18px 48px -12px rgba(16,24,28,.18), 0 6px 16px -8px rgba(16,24,28,.09);
+  --shadow-xl: 0 36px 80px -20px rgba(16,24,28,.24), 0 12px 28px -12px rgba(16,24,28,.11);
+  --shadow-brand: 0 12px 30px -10px rgba(12,232,246,.45);
+
+  /* ========================================================================
+     8. MOTION
+     ======================================================================== */
+  --ease-out:   cubic-bezier(0.22, 1, 0.36, 1);    /* @kind other */ /* primary entrance/exit */
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);    /* @kind other */
+  --dur-fast:   140ms;  /* @kind other */
+  --dur:        220ms;  /* @kind other */
+  --dur-slow:   420ms;  /* @kind other */
+}

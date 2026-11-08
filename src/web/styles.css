@@ -1,12 +1,52 @@
 @import "tailwindcss";
+@import "./dinexis-tokens.css";
 
-/* Design tokens (ADR-011): colours live here, never as hex values in JSX. */
+/* ============================================================================
+   Dinexis Design System (ADR-011) — binding visual foundation.
+   Tokens live verbatim in ./dinexis-tokens.css (copied from the design
+   system's colors_and_type.css). Deliberately NOT copied: its Google Fonts
+   @import — fonts are self-hosted (DSGVO).
+   ============================================================================ */
+/* Self-hosted fonts (fontsource, imported in main.tsx) — same families as the
+   design system, served from our own bundle instead of Google. */
+:root {
+  --font-display:
+    "Schibsted Grotesk Variable", "Schibsted Grotesk", "Segoe UI", system-ui,
+    sans-serif;
+  --font-body:
+    "Hanken Grotesk Variable", "Hanken Grotesk", system-ui, -apple-system,
+    sans-serif;
+  color-scheme: light; /* light theme only (ADR-011) */
+}
+
+/* shadcn/ui tokens mapped onto Dinexis tokens — no raw colour values here. */
+:root {
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --primary: var(--graphite-900);
+  --primary-hover: var(--graphite-800);
+  --primary-foreground: var(--paper);
+  --secondary: var(--surface-inset);
+  --secondary-foreground: var(--ink);
+  --accent: var(--surface-inset);
+  --accent-foreground: var(--ink);
+  /* ink-3 fails WCAG AA for text on white — muted text uses ink-2 */
+  --muted: var(--paper-2);
+  --muted-foreground: var(--ink-2);
+  /* border-strong (1.57:1) is below WCAG 1.4.11 for input boundaries → ink-3 (3.31:1) */
+  --input: var(--ink-3);
+  --ring: var(--brand);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -14,68 +54,102 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-}
+  --color-paper-2: var(--paper-2);
+  --color-surface-inset: var(--surface-inset);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-brand: var(--brand);
+  --color-brand-700: var(--brand-700);
+  --color-brand-100: var(--brand-100);
+  --color-brand-050: var(--brand-050);
+  --color-magenta: var(--magenta);
+  --color-magenta-100: var(--magenta-100);
+  --color-graphite-900: var(--graphite-900);
+  --color-destructive: var(--danger);
+  --color-destructive-100: var(--danger-100);
+  --color-success: var(--success);
+  --color-success-100: var(--success-100);
+  --color-warning: var(--warning);
+  --color-warning-100: var(--warning-100);
 
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --success: oklch(0.6 0.15 150);
-  --warning: oklch(0.75 0.15 75);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-}
+  --font-sans: var(--font-body);
+  --font-heading: var(--font-display);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --success: oklch(0.7 0.15 150);
-    --warning: oklch(0.8 0.15 75);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-  }
+  --text-display: var(--fs-display);
+  --text-h1: var(--fs-h1);
+  --text-h2: var(--fs-h2);
+  --text-h3: var(--fs-h3);
+  --text-h4: var(--fs-h4);
+  --text-lead: var(--fs-lead);
+  --text-body: var(--fs-body);
+  --text-sm: var(--fs-sm);
+  --text-caption: var(--fs-caption);
+
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+  }
+  html {
+    background: var(--paper);
   }
   body {
-    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-body);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+    color: var(--ink);
+    background: var(--paper);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    color: var(--ink);
+    letter-spacing: var(--ls-snug);
+    line-height: var(--lh-snug);
+  }
+  h1 {
+    font-weight: var(--fw-bold);
+    letter-spacing: var(--ls-tight);
+  }
+  p {
+    line-height: var(--lh-relaxed);
+  }
+  a {
+    color: var(--brand-700);
+  }
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+  ::selection {
+    background: var(--brand);
+    color: var(--ink-on-brand);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override every utility class */
+      transition-duration: 0.01ms !important;
+      /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override every utility class */
+      animation-duration: 0.01ms !important;
+      /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override every utility class */
+      transform: none !important;
+    }
   }
 }

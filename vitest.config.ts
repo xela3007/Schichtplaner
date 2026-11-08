@@ -27,6 +27,9 @@ export default defineConfig({
           name: "web",
           environment: "jsdom",
           include: ["src/web/**/*.test.{ts,tsx}"],
+          // styles.test.ts reads the stylesheets via ?raw — by default Vitest
+          // turns every CSS import into an empty module.
+          css: { include: [/styles\.css|dinexis-tokens\.css/] },
         },
       },
     ],

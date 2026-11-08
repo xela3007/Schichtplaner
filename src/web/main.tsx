@@ -2,6 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { configResult } from "./config";
+import "@fontsource-variable/hanken-grotesk";
+import "@fontsource-variable/schibsted-grotesk";
 import "./styles.css";
 
 const root = createRoot(document.getElementById("root") as HTMLElement);

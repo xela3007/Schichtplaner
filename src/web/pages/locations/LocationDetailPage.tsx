@@ -12,6 +12,7 @@ import { PageShell } from "@/components/PageShell";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Pill } from "@/components/ui/pill";
 import { ApiError, apiFetch } from "@/lib/api";
 import {
   compactWeek,
@@ -167,12 +168,8 @@ export function LocationDetailPage() {
         ← Alle Standorte
       </Link>
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold">{location.name}</h1>
-        {!location.active && (
-          <span className="rounded-md border px-2 py-0.5 text-sm text-muted-foreground">
-            deaktiviert
-          </span>
-        )}
+        <h1 className="font-heading text-h3 font-bold">{location.name}</h1>
+        {!location.active && <Pill>deaktiviert</Pill>}
       </div>
       <p className="text-muted-foreground">{kindLabel(location.kind)}</p>
 
