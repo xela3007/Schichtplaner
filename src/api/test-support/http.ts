@@ -10,7 +10,11 @@ export async function bearer(sub: string, permissions: string[]) {
   };
 }
 export const plannerAuth = () =>
-  bearer(PLANNER_ID, ["locations.manage", "employees.manage"]);
+  bearer(PLANNER_ID, [
+    "locations.manage",
+    "employees.manage",
+    "availability.manage",
+  ]);
 export const memberAuth = () => bearer(MEMBER_ID, []);
 
 /** Small request helper around app.request with JSON bodies. */

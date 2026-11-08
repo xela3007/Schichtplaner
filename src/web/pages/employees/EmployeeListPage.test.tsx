@@ -63,3 +63,22 @@ describe("EmployeeListPage", () => {
     expect(screen.queryByRole("option", { name: "Ersthelfer" })).toBeNull();
   });
 });
+
+describe("EmployeeListPage – read-only", () => {
+  it("availability-only users see the list without management actions", async () => {
+    mockApi(
+      {
+        "GET /employees": json(200, f.employees),
+        "GET /contract-types": json(200, f.contractTypes),
+        "GET /qualifications": json(200, f.qualifications),
+        "GET /system-accesses": json(200, f.systems),
+        "GET /locations?includeInactive=true": json(200, f.locations),
+      },
+      ["availability.manage"],
+    );
+    renderRoutes("/mitarbeiter", { "/mitarbeiter": <EmployeeListPage /> });
+    expect(await screen.findByText("Müller, Anna")).toBeTruthy();
+    expect(screen.queryByText("Mitarbeiter anlegen")).toBeNull();
+    expect(screen.queryByText("Auswahllisten verwalten")).toBeNull();
+  });
+});

@@ -57,6 +57,20 @@
       "when": 1794142878269,
       "tag": "0007_seed_employees_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794146345214,
+      "tag": "0008_availability",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794146345559,
+      "tag": "0009_seed_availability_permission",
+      "breakpoints": true
     }
   ]
 }

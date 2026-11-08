@@ -25,6 +25,7 @@ import {
   type SaveResult,
   type StaffingRepository,
 } from "../staffing/repository.js";
+import { InMemoryAvailabilityRepository } from "./fake-availability.js";
 import {
   InMemoryCatalogRepository,
   InMemoryContractTypeRepository,
@@ -72,7 +73,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
   /** role key → permissions, mirrors the seeded roles */
   rolePermissions: Record<string, string[]> = {
-    planner: ["locations.manage", "employees.manage"],
+    planner: ["locations.manage", "employees.manage", "availability.manage"],
   };
   userRoleKeys = new Map<string, Set<string>>();
 
@@ -276,6 +277,7 @@ export function makeTestApp(
   const locations = new InMemoryLocationRepository();
   const staffing = new InMemoryStaffingRepository();
   const employees = new InMemoryEmployeeRepository(locations);
+  const availability = new InMemoryAvailabilityRepository(employees);
   const catalogs = {
     contractTypes: new InMemoryContractTypeRepository((id) =>
       [...employees.rows.values()].some((e) => e.contractTypeId === id),
@@ -291,6 +293,7 @@ export function makeTestApp(
     staffing,
     employees,
     catalogs,
+    availability,
     auth: {
       repository,
       rateLimiter,
@@ -312,5 +315,6 @@ export function makeTestApp(
     staffing,
     employees,
     catalogs,
+    availability,
   };
 }

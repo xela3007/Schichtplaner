@@ -5,7 +5,7 @@ import {
   EmployeeUpdate,
 } from "#shared/employees.js";
 import { VersionOnly } from "#shared/locations.js";
-import { requirePermission } from "../auth/middleware.js";
+import { requireAnyPermission, requirePermission } from "../auth/middleware.js";
 import type {
   CatalogRepository,
   ContractTypeRepository,
@@ -123,8 +123,10 @@ async function checkReferences(
 /** Mounted behind requireAuth; everything needs `employees.manage` (ADR-010). */
 export function employeeRoutes(deps: Deps) {
   const app = new Hono<AppEnv>();
-  app.use("/employees", requirePermission(EMPLOYEES_MANAGE));
-  app.use("/employees/*", requirePermission(EMPLOYEES_MANAGE));
+  // Reads: employee managers AND availability maintainers (read-only profiles).
+  // Writes: employees.manage only (ADR-010).
+  const read = requireAnyPermission(EMPLOYEES_MANAGE, "availability.manage");
+  const write = requirePermission(EMPLOYEES_MANAGE);
 
   const invalid = (c: Context<AppEnv>, issues: Issue[]) =>
     c.json(
@@ -132,11 +134,11 @@ export function employeeRoutes(deps: Deps) {
       400,
     );
 
-  app.get("/employees", async (c) =>
+  app.get("/employees", read, async (c) =>
     c.json({ employees: await deps.employees.list() }, 200),
   );
 
-  app.post("/employees", async (c) => {
+  app.post("/employees", write, async (c) => {
     const parsed = await parseJson(c, EmployeeInput);
     if ("response" in parsed) return parsed.response;
     const { issues, cleaned } = await checkReferences(deps, parsed.data, null);
@@ -148,14 +150,14 @@ export function employeeRoutes(deps: Deps) {
     );
   });
 
-  app.get("/employees/:id", async (c) => {
+  app.get("/employees/:id", read, async (c) => {
     const id = c.req.param("id");
     if (!UUID.test(id)) return notFound(c);
     const employee = await deps.employees.get(id);
     return employee ? c.json(employee, 200) : notFound(c);
   });
 
-  app.put("/employees/:id", async (c) => {
+  app.put("/employees/:id", write, async (c) => {
     const id = c.req.param("id");
     if (!UUID.test(id)) return notFound(c);
     const parsed = await parseJson(c, EmployeeUpdate);
@@ -175,7 +177,7 @@ export function employeeRoutes(deps: Deps) {
     ["deactivate", false],
     ["reactivate", true],
   ] as const) {
-    app.post(`/employees/:id/${action}`, async (c) => {
+    app.post(`/employees/:id/${action}`, write, async (c) => {
       const id = c.req.param("id");
       if (!UUID.test(id)) return notFound(c);
       const parsed = await parseJson(c, VersionOnly);
@@ -192,7 +194,7 @@ export function employeeRoutes(deps: Deps) {
     });
   }
 
-  app.get("/employees/:id/history", async (c) => {
+  app.get("/employees/:id/history", read, async (c) => {
     const id = c.req.param("id");
     if (!UUID.test(id)) return notFound(c);
     if (!(await deps.employees.get(id))) return notFound(c);

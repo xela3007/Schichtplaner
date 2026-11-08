@@ -4,10 +4,19 @@ import { useAuth } from "@/auth/AuthProvider";
 import { useMe } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
-/** Nav entries; `permission` hides an entry from users without it (UI hint only, ADR-010). */
-const NAV: { to: string; label: string; permission?: string }[] = [
+/** Nav entries; `anyOf` hides an entry from users without any of those permissions (UI hint only, ADR-010). */
+const NAV: { to: string; label: string; anyOf?: string[] }[] = [
   { to: "/standorte", label: "Standorte" },
-  { to: "/mitarbeiter", label: "Mitarbeiter", permission: "employees.manage" },
+  {
+    to: "/mitarbeiter",
+    label: "Mitarbeiter",
+    anyOf: ["employees.manage", "availability.manage"],
+  },
+  {
+    to: "/abwesenheiten",
+    label: "Abwesenheiten",
+    anyOf: ["availability.manage"],
+  },
 ];
 
 /** App frame: sticky translucent header with the official Dinexis wordmark. */
@@ -37,7 +46,7 @@ export function PageShell({ children }: { children: ReactNode }) {
           {status === "authenticated" && (
             <nav aria-label="Hauptnavigation" className="flex gap-5 text-sm">
               {NAV.filter(
-                (n) => !n.permission || permissions.includes(n.permission),
+                (n) => !n.anyOf || n.anyOf.some((p) => permissions.includes(p)),
               ).map((n) => (
                 <NavLink
                   key={n.to}

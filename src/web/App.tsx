@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { RequireAuth } from "@/auth/RequireAuth";
+import { AvailabilityWeekPage } from "@/pages/availability/AvailabilityWeekPage";
 import { CatalogsPage } from "@/pages/employees/CatalogsPage";
 import { EmployeeDetailPage } from "@/pages/employees/EmployeeDetailPage";
 import { EmployeeFormPage } from "@/pages/employees/EmployeeFormPage";
@@ -107,6 +108,14 @@ export function App() {
               element={
                 <RequireAuth>
                   <EmployeeFormPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/abwesenheiten"
+              element={
+                <RequireAuth>
+                  <AvailabilityWeekPage />
                 </RequireAuth>
               }
             />

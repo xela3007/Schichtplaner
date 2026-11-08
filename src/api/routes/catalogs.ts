@@ -1,4 +1,5 @@
 import { type Context, Hono } from "hono";
+import { createMiddleware } from "hono/factory";
 import {
   CatalogInput,
   CatalogUpdate,
@@ -6,7 +7,7 @@ import {
   ContractTypeUpdate,
 } from "#shared/catalogs.js";
 import { VersionOnly } from "#shared/locations.js";
-import { requirePermission } from "../auth/middleware.js";
+import { requireAnyPermission, requirePermission } from "../auth/middleware.js";
 import type {
   CatalogRepository,
   CatalogResult,
@@ -82,13 +83,20 @@ export function catalogRoutes(deps: {
   systemAccesses: CatalogRepository;
 }) {
   const app = new Hono<AppEnv>();
+  // Reads also for availability maintainers (names in read-only profiles);
+  // every write needs employees.manage (ADR-010).
+  const read = requireAnyPermission(EMPLOYEES_MANAGE, "availability.manage");
+  const write = requirePermission(EMPLOYEES_MANAGE);
+  const guard = createMiddleware<AppEnv>((c, next) =>
+    c.req.method === "GET" ? read(c, next) : write(c, next),
+  );
   for (const base of [
     "/contract-types",
     "/qualifications",
     "/system-accesses",
   ]) {
-    app.use(base, requirePermission(EMPLOYEES_MANAGE));
-    app.use(`${base}/*`, requirePermission(EMPLOYEES_MANAGE));
+    app.use(base, guard);
+    app.use(`${base}/*`, guard);
   }
 
   // Contract types

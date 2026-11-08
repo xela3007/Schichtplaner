@@ -121,6 +121,13 @@ export const AuditAction = z.enum([
   "updated",
   "deactivated",
   "reactivated",
+  // availability entries, recorded on the employee (ADR-015)
+  "absence_added",
+  "absence_changed",
+  "absence_deleted",
+  "rule_added",
+  "rule_changed",
+  "rule_deleted",
 ]);
 export type AuditAction = z.infer<typeof AuditAction>;
 

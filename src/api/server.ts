@@ -4,6 +4,7 @@ import { createClientIpResolver } from "./auth/client-ip.js";
 import { cookiePolicy } from "./auth/cookies.js";
 import { DbRateLimiter } from "./auth/rate-limit.js";
 import { DrizzleAuthRepository } from "./auth/repository.js";
+import { DrizzleAvailabilityRepository } from "./availability/repository.js";
 import { getBuildInfo } from "./build-info.js";
 import {
   DrizzleCatalogRepository,
@@ -38,6 +39,7 @@ const app = createApp({
   locations: new DrizzleLocationRepository(db),
   staffing: new DrizzleStaffingRepository(db),
   employees: new DrizzleEmployeeRepository(db),
+  availability: new DrizzleAvailabilityRepository(db),
   catalogs: {
     contractTypes: new DrizzleContractTypeRepository(db),
     qualifications: DrizzleCatalogRepository.qualifications(db),

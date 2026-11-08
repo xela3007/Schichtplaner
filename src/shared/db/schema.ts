@@ -5,6 +5,7 @@ import {
   type AnyPgColumn,
   boolean,
   check,
+  date,
   index,
   integer,
   jsonb,
@@ -327,6 +328,66 @@ export const employeeLocations = pgTable(
     check(
       "employee_locations_preference_check",
       sql`${t.preference} in ('preferred', 'neutral', 'blocked')`,
+    ),
+  ],
+);
+
+// --- Availability (Abwesenheiten + recurring rules) -------------------------
+// Calendar dates + local "HH:MM" (ADR-004 exception "Planungsdaten mit
+// Kalendertag"). Audit entries are written on the employee (ADR-015).
+export const absences = pgTable(
+  "absences",
+  {
+    id: id(),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    startDate: date("start_date", { mode: "string" }).notNull(),
+    endDate: date("end_date", { mode: "string" }).notNull(),
+    startTime: text("start_time"),
+    endTime: text("end_time"),
+    note: text("note"),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    index("absences_employee_idx").on(t.employeeId, t.startDate),
+    index("absences_range_idx").on(t.startDate, t.endDate),
+    check(
+      "absences_kind_check",
+      sql`${t.kind} in ('vacation', 'absent', 'appointment', 'wish_off')`,
+    ),
+    check("absences_range_check", sql`${t.endDate} >= ${t.startDate}`),
+    check(
+      "absences_time_check",
+      sql`(${t.startTime} is null and ${t.endTime} is null) or (${t.startTime} is not null and ${t.endTime} is not null and ${t.startDate} = ${t.endDate} and ${t.startTime} < ${t.endTime})`,
+    ),
+  ],
+);
+
+export const availabilityRules = pgTable(
+  "availability_rules",
+  {
+    id: id(),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    weekdays: text("weekdays").array().notNull(),
+    startTime: text("start_time"),
+    endTime: text("end_time"),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    index("availability_rules_employee_idx").on(t.employeeId),
+    check(
+      "availability_rules_weekdays_check",
+      sql`cardinality(${t.weekdays}) between 1 and 7 and ${t.weekdays} <@ array['mon','tue','wed','thu','fri','sat','sun']::text[]`,
+    ),
+    check(
+      "availability_rules_time_check",
+      sql`${t.startTime} is null or ${t.endTime} is null or ${t.startTime} < ${t.endTime}`,
     ),
   ],
 );

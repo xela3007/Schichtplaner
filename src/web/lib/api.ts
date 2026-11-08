@@ -17,7 +17,7 @@ export class ApiError extends Error {
 
 type Options<T extends z.ZodType> = {
   schema?: T;
-  method?: "GET" | "POST" | "PUT";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   /** Send the access token and refresh once on 401. */
   auth?: boolean;

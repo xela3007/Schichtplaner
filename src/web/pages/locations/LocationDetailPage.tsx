@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import type { AuditEntry, OpeningHours } from "#shared/locations.js";
+import type { OpeningHours } from "#shared/locations.js";
 import {
   Location,
   LocationHistory,
@@ -16,6 +16,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { ApiError, apiFetch } from "@/lib/api";
+import { AUDIT_ACTION_LABELS } from "@/lib/audit";
 import {
   compactWeek,
   dayText,
@@ -24,12 +25,7 @@ import {
 } from "@/lib/locations";
 import { useCan } from "@/lib/permissions";
 
-const ACTION_LABELS: Record<AuditEntry["action"], string> = {
-  created: "angelegt",
-  updated: "geändert",
-  deactivated: "deaktiviert",
-  reactivated: "reaktiviert",
-};
+const ACTION_LABELS = AUDIT_ACTION_LABELS;
 const FIELD_LABELS: Record<string, string> = {
   name: "Name",
   kind: "Art",

@@ -27,3 +27,14 @@ export function requirePermission(permission: string) {
     await next();
   });
 }
+
+/** Passes if the user has at least one of the permissions (still a permission check, ADR-010). */
+export function requireAnyPermission(...permissions: string[]) {
+  return createMiddleware<AppEnv>(async (c, next) => {
+    const held = c.get("auth")?.permissions ?? [];
+    if (!permissions.some((p) => held.includes(p))) {
+      return c.json({ error: "forbidden", requestId: c.get("requestId") }, 403);
+    }
+    await next();
+  });
+}

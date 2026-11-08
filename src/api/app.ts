@@ -7,6 +7,7 @@ import { requireAuth } from "./auth/middleware.js";
 import type { RateLimiter } from "./auth/rate-limit.js";
 import type { AuthRepository } from "./auth/repository.js";
 import { AuthService } from "./auth/service.js";
+import type { AvailabilityRepository } from "./availability/repository.js";
 import type { BuildInfo } from "./build-info.js";
 import type {
   CatalogRepository,
@@ -16,6 +17,7 @@ import type { EmployeeRepository } from "./employees/repository.js";
 import type { LocationRepository } from "./locations/repository.js";
 import type { Mailer } from "./mail/mailer.js";
 import { authRoutes } from "./routes/auth.js";
+import { availabilityRoutes } from "./routes/availability.js";
 import { catalogRoutes } from "./routes/catalogs.js";
 import { employeeRoutes } from "./routes/employees.js";
 import { healthRoutes } from "./routes/health.js";
@@ -33,6 +35,7 @@ export type AppDeps = {
   locations: LocationRepository;
   staffing: StaffingRepository;
   employees: EmployeeRepository;
+  availability: AvailabilityRepository;
   catalogs: {
     contractTypes: ContractTypeRepository;
     qualifications: CatalogRepository;
@@ -60,6 +63,7 @@ export function createApp({
   staffing,
   employees,
   catalogs,
+  availability,
 }: AppDeps) {
   const app = new Hono<AppEnv>();
 
@@ -131,10 +135,14 @@ export function createApp({
     "/contract-types",
     "/qualifications",
     "/system-accesses",
+    "/absences",
+    "/availability-rules",
+    "/availability",
   ]) {
     app.use(prefix, authenticated);
     app.use(`${prefix}/*`, authenticated);
   }
+  app.route("/", availabilityRoutes(availability, employees));
   app.route("/", catalogRoutes(catalogs));
   app.route("/", employeeRoutes({ employees, locations, ...catalogs }));
 

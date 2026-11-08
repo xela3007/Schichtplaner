@@ -20,7 +20,7 @@ import {
   useContractTypes,
   useEmployees,
 } from "@/lib/employees";
-import { useCan } from "@/lib/permissions";
+import { useCan, useCanAny } from "@/lib/permissions";
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -60,6 +60,7 @@ function Filter({
 
 /** /mitarbeiter — active employees; inactive ones only show up when searching. */
 export function EmployeeListPage() {
+  const canRead = useCanAny("employees.manage", "availability.manage");
   const canManage = useCan("employees.manage");
   const employees = useEmployees();
   const contractTypes = useContractTypes();
@@ -88,7 +89,7 @@ export function EmployeeListPage() {
       );
   }, [employees.data, term, qualification, system, location]);
 
-  if (!canManage) {
+  if (!canRead) {
     return (
       <PageShell>
         <Alert variant="destructive">
@@ -107,17 +108,19 @@ export function EmployeeListPage() {
     <PageShell>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-heading text-h3 font-bold">Mitarbeiter</h1>
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/mitarbeiter/listen"
-            className="text-sm underline underline-offset-4"
-          >
-            Auswahllisten verwalten
-          </Link>
-          <Link to="/mitarbeiter/neu" className={buttonVariants()}>
-            Mitarbeiter anlegen
-          </Link>
-        </div>
+        {canManage && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              to="/mitarbeiter/listen"
+              className="text-sm underline underline-offset-4"
+            >
+              Auswahllisten verwalten
+            </Link>
+            <Link to="/mitarbeiter/neu" className={buttonVariants()}>
+              Mitarbeiter anlegen
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

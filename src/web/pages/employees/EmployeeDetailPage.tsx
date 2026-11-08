@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router";
+import { z } from "zod";
+import {
+  AbsenceKind,
+  formatAbsence,
+  formatRule,
+} from "#shared/availability.js";
 import {
   Employee,
   effectiveWeeklyMinutes,
@@ -10,13 +16,30 @@ import {
   type Preference,
   preferenceAt,
 } from "#shared/employees.js";
-import { type AuditEntry, LocationHistory } from "#shared/locations.js";
+import { LocationHistory, WEEKDAYS } from "#shared/locations.js";
+
+const AbsenceSnapshot = z.object({
+  kind: AbsenceKind,
+  startDate: z.string(),
+  endDate: z.string(),
+  startTime: z.string().nullable(),
+  endTime: z.string().nullable(),
+  note: z.string().nullable(),
+});
+const RuleSnapshot = z.object({
+  weekdays: z.array(z.enum(WEEKDAYS)),
+  startTime: z.string().nullable(),
+  endTime: z.string().nullable(),
+});
+
+import { AvailabilitySection } from "@/components/AvailabilitySection";
 import { PageShell } from "@/components/PageShell";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { ApiError, apiFetch } from "@/lib/api";
+import { AUDIT_ACTION_LABELS } from "@/lib/audit";
 import {
   formatHours,
   nameOf,
@@ -25,14 +48,9 @@ import {
   useContractTypes,
 } from "@/lib/employees";
 import { formatDateTime } from "@/lib/locations";
-import { useCan } from "@/lib/permissions";
+import { useCan, useCanAny } from "@/lib/permissions";
 
-const ACTION_LABELS: Record<AuditEntry["action"], string> = {
-  created: "angelegt",
-  updated: "geändert",
-  deactivated: "deaktiviert",
-  reactivated: "reaktiviert",
-};
+const ACTION_LABELS = AUDIT_ACTION_LABELS;
 const FIELD_LABELS: Record<string, string> = {
   firstName: "Vorname",
   lastName: "Nachname",
@@ -92,6 +110,29 @@ function formatValue(field: string, value: unknown, l: Lookup): string {
   }
 }
 
+/** Snapshot of an absence or rule in the history (added / changed / deleted). */
+function describeEntry(v: unknown): string {
+  const parsedAbsence = AbsenceSnapshot.safeParse(v);
+  if (parsedAbsence.success) {
+    const a = parsedAbsence.data;
+    return `${formatAbsence(a)}${a.note ? ` (${a.note})` : ""}`;
+  }
+  const parsedRule = RuleSnapshot.safeParse(v);
+  return parsedRule.success
+    ? `nicht verfügbar ${formatRule(parsedRule.data)}`
+    : "—";
+}
+
+function EntryChange({ change }: { change: { from: unknown; to: unknown } }) {
+  return (
+    <p className="mt-1 text-muted-foreground">
+      {change.from && change.to
+        ? `${describeEntry(change.from)} → ${describeEntry(change.to)}`
+        : describeEntry(change.to ?? change.from)}
+    </p>
+  );
+}
+
 function History({ id, lookup }: { id: string; lookup: Lookup }) {
   const history = useQuery({
     queryKey: ["employee-history", id],
@@ -125,6 +166,9 @@ function History({ id, lookup }: { id: string; lookup: Lookup }) {
                 von {entry.actorEmail ?? "unbekannt"} am{" "}
                 {formatDateTime(entry.occurredAt)}
               </div>
+              {entry.changes.entry && (
+                <EntryChange change={entry.changes.entry} />
+              )}
               {entry.action === "updated" && (
                 <ul className="mt-1 text-muted-foreground">
                   {Object.entries(entry.changes).map(([field, change]) => (
@@ -162,7 +206,9 @@ function Row({
 
 export function EmployeeDetailPage() {
   const { id = "" } = useParams();
+  const canRead = useCanAny("employees.manage", "availability.manage");
   const canManage = useCan("employees.manage");
+  const canAvailability = useCan("availability.manage");
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
   const contractTypes = useContractTypes();
@@ -175,7 +221,7 @@ export function EmployeeDetailPage() {
     queryFn: () =>
       apiFetch(`/employees/${id}`, { schema: Employee, auth: true }),
     retry: false,
-    enabled: canManage,
+    enabled: canRead,
   });
 
   const toggle = useMutation({
@@ -196,7 +242,7 @@ export function EmployeeDetailPage() {
     },
   });
 
-  if (!canManage) {
+  if (!canRead) {
     return (
       <PageShell>
         <Alert variant="destructive">
@@ -375,50 +421,56 @@ export function EmployeeDetailPage() {
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Link
-          to={`/mitarbeiter/${e.id}/bearbeiten`}
-          className={buttonVariants()}
-        >
-          Bearbeiten
-        </Link>
-        {!confirming ? (
-          <Button variant="outline" onClick={() => setConfirming(true)}>
-            {e.active ? "Deaktivieren" : "Reaktivieren"}
-          </Button>
-        ) : (
-          <fieldset
-            aria-label="Bestätigung"
-            className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm"
-          >
-            {e.active
-              ? "Mitarbeiter deaktivieren? Er erscheint dann nicht mehr in der Übersicht, alle Angaben bleiben erhalten."
-              : "Mitarbeiter wieder aktivieren?"}
-            <Button
-              size="sm"
-              disabled={toggle.isPending}
-              onClick={() => toggle.mutate(e)}
+      {canAvailability && <AvailabilitySection employeeId={e.id} />}
+
+      {canManage && (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              to={`/mitarbeiter/${e.id}/bearbeiten`}
+              className={buttonVariants()}
             >
-              {e.active ? "Ja, deaktivieren" : "Ja, reaktivieren"}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setConfirming(false)}
-            >
-              Abbrechen
-            </Button>
-          </fieldset>
-        )}
-      </div>
-      {toggle.isError && (
-        <Alert variant="destructive">
-          <AlertDescription>
-            {conflict
-              ? "Der Mitarbeiter wurde inzwischen von jemand anderem geändert. Die Ansicht zeigt jetzt den aktuellen Stand — bitte erneut versuchen."
-              : "Aktion fehlgeschlagen. Bitte erneut versuchen."}
-          </AlertDescription>
-        </Alert>
+              Bearbeiten
+            </Link>
+            {!confirming ? (
+              <Button variant="outline" onClick={() => setConfirming(true)}>
+                {e.active ? "Deaktivieren" : "Reaktivieren"}
+              </Button>
+            ) : (
+              <fieldset
+                aria-label="Bestätigung"
+                className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm"
+              >
+                {e.active
+                  ? "Mitarbeiter deaktivieren? Er erscheint dann nicht mehr in der Übersicht, alle Angaben bleiben erhalten."
+                  : "Mitarbeiter wieder aktivieren?"}
+                <Button
+                  size="sm"
+                  disabled={toggle.isPending}
+                  onClick={() => toggle.mutate(e)}
+                >
+                  {e.active ? "Ja, deaktivieren" : "Ja, reaktivieren"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirming(false)}
+                >
+                  Abbrechen
+                </Button>
+              </fieldset>
+            )}
+          </div>
+          {toggle.isError && (
+            <Alert variant="destructive">
+              <AlertDescription>
+                {conflict
+                  ? "Der Mitarbeiter wurde inzwischen von jemand anderem geändert. Die Ansicht zeigt jetzt den aktuellen Stand — bitte erneut versuchen."
+                  : "Aktion fehlgeschlagen. Bitte erneut versuchen."}
+              </AlertDescription>
+            </Alert>
+          )}
+        </>
       )}
 
       <History id={e.id} lookup={lookup} />

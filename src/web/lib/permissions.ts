@@ -16,3 +16,9 @@ export function useMe() {
 export function useCan(permission: string): boolean {
   return useMe().data?.permissions.includes(permission) ?? false;
 }
+
+/** True if the user holds at least one of the permissions (UI hint only). */
+export function useCanAny(...permissions: string[]): boolean {
+  const held = useMe().data?.permissions ?? [];
+  return permissions.some((p) => held.includes(p));
+}

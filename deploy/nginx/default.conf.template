@@ -50,8 +50,8 @@ server {
     include /etc/nginx/api-proxy.conf;
   }
 
-  # Employees API + Auswahllisten (pages live under /mitarbeiter, so no collision)
-  location ~ ^/(employees|contract-types|qualifications|system-accesses)(/|$) {
+  # Employees API + Auswahllisten + availability (pages live under /mitarbeiter, so no collision)
+  location ~ ^/(employees|contract-types|qualifications|system-accesses|absences|availability-rules|availability)(/|$) {
     proxy_pass $api_upstream;
     include /etc/nginx/api-proxy.conf;
   }
