@@ -182,3 +182,25 @@ export const auditEvents = pgTable(
     ),
   ],
 );
+
+// --- Staffing demand per location (Besetzungsbedarf) -----------------------
+// Own row and own version, so opening hours and demand can be edited
+// independently (ADR-015). Windows are local times (ADR-004), validated by Zod.
+export type StoredStaffingWindow = {
+  weekday: string;
+  start: string;
+  end: string;
+  people: number;
+};
+
+export const locationStaffing = pgTable("location_staffing", {
+  locationId: uuid("location_id")
+    .primaryKey()
+    .references(() => locations.id, { onDelete: "cascade" }),
+  windows: jsonb("windows")
+    .$type<StoredStaffingWindow[]>()
+    .notNull()
+    .default([]),
+  version: integer("version").notNull().default(1),
+  ...timestamps,
+});

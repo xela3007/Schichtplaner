@@ -15,6 +15,8 @@ import { healthRoutes } from "./routes/health.js";
 import { locationRoutes } from "./routes/locations.js";
 import { meRoutes } from "./routes/me.js";
 import { referenceRoutes } from "./routes/reference.js";
+import { staffingRoutes } from "./routes/staffing.js";
+import type { StaffingRepository } from "./staffing/repository.js";
 import type { AppEnv } from "./types.js";
 
 export type AppDeps = {
@@ -22,6 +24,7 @@ export type AppDeps = {
   buildInfo: BuildInfo;
   checkDatabase: () => Promise<boolean>;
   locations: LocationRepository;
+  staffing: StaffingRepository;
   auth: {
     repository: AuthRepository;
     rateLimiter: RateLimiter;
@@ -41,6 +44,7 @@ export function createApp({
   checkDatabase,
   auth,
   locations,
+  staffing,
 }: AppDeps) {
   const app = new Hono<AppEnv>();
 
@@ -105,6 +109,7 @@ export function createApp({
   app.route("/", referenceRoutes());
   app.use("/locations", authenticated);
   app.use("/locations/*", authenticated);
+  app.route("/", staffingRoutes(locations, staffing));
   app.route("/", locationRoutes(locations));
 
   app.notFound((c) =>

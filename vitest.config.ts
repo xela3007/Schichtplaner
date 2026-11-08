@@ -15,7 +15,7 @@ export default defineConfig({
         test: {
           name: "api",
           environment: "node",
-          include: ["src/api/**/*.test.ts"],
+          include: ["src/api/**/*.test.ts", "src/shared/**/*.test.ts"],
         },
       },
       {

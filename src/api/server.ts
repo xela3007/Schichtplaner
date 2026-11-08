@@ -10,6 +10,7 @@ import { loadEnv } from "./env.js";
 import { DrizzleLocationRepository } from "./locations/repository.js";
 import { createLogger } from "./logger.js";
 import { ConsoleMailer } from "./mail/mailer.js";
+import { DrizzleStaffingRepository } from "./staffing/repository.js";
 
 const env = loadEnv();
 const logger = createLogger(env);
@@ -30,6 +31,7 @@ const app = createApp({
   buildInfo,
   checkDatabase: ping,
   locations: new DrizzleLocationRepository(db),
+  staffing: new DrizzleStaffingRepository(db),
   auth: {
     repository: new DrizzleAuthRepository(db),
     rateLimiter: new DbRateLimiter(db),

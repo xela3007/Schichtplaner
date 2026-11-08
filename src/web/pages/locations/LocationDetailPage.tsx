@@ -8,7 +8,9 @@ import {
   WEEKDAY_LABELS,
   WEEKDAYS,
 } from "#shared/locations.js";
+import { Staffing } from "#shared/staffing.js";
 import { PageShell } from "@/components/PageShell";
+import { StaffingOverview } from "@/components/StaffingOverview";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,6 +96,54 @@ function History({ id }: { id: string }) {
             </li>
           ))}
         </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StaffingCard({ location }: { location: Location }) {
+  const staffing = useQuery({
+    queryKey: ["staffing", location.id],
+    queryFn: () =>
+      apiFetch(`/locations/${location.id}/staffing`, {
+        schema: Staffing,
+        auth: true,
+      }),
+  });
+  return (
+    <Card>
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+        <CardTitle>Besetzungsbedarf</CardTitle>
+        <Link
+          to={`/standorte/${location.id}/bedarf`}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+          aria-label="Besetzungsbedarf bearbeiten"
+        >
+          Bearbeiten
+        </Link>
+      </CardHeader>
+      <CardContent className="text-sm">
+        {staffing.isPending && (
+          <p className="text-muted-foreground">
+            Besetzungsbedarf wird geladen …
+          </p>
+        )}
+        {staffing.isError && (
+          <p className="text-destructive">
+            Besetzungsbedarf konnte nicht geladen werden.
+          </p>
+        )}
+        {staffing.data?.windows.length === 0 && (
+          <p className="text-muted-foreground">
+            Noch kein Besetzungsbedarf hinterlegt.
+          </p>
+        )}
+        {staffing.data && staffing.data.windows.length > 0 && (
+          <StaffingOverview
+            openingHours={location.openingHours}
+            windows={staffing.data.windows}
+          />
+        )}
       </CardContent>
     </Card>
   );
@@ -236,6 +286,8 @@ export function LocationDetailPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      {canManage && <StaffingCard location={location} />}
 
       {canManage && <History id={location.id} />}
     </PageShell>

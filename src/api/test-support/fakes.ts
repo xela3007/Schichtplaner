@@ -3,6 +3,7 @@
 import { pino } from "pino";
 import { v7 as uuidv7 } from "uuid";
 import type { AuditEntry, Location, LocationInput } from "#shared/locations.js";
+import type { Staffing, StaffingWindow } from "#shared/staffing.js";
 import { createApp } from "../app.js";
 import type { CookiePolicy } from "../auth/cookies.js";
 import type { RateLimiter } from "../auth/rate-limit.js";
@@ -19,6 +20,11 @@ import type {
   WriteResult,
 } from "../locations/repository.js";
 import type { Mail, Mailer } from "../mail/mailer.js";
+import {
+  EMPTY_STAFFING,
+  type SaveResult,
+  type StaffingRepository,
+} from "../staffing/repository.js";
 
 export const TEST_SECRET = "test-secret-that-is-long-enough-1234567890";
 
@@ -210,6 +216,28 @@ export class InMemoryLocationRepository implements LocationRepository {
   }
 }
 
+export class InMemoryStaffingRepository implements StaffingRepository {
+  rows = new Map<string, Staffing>();
+  async get(locationId: string) {
+    return this.rows.get(locationId) ?? EMPTY_STAFFING;
+  }
+  async save(
+    locationId: string,
+    windows: StaffingWindow[],
+    version: number,
+  ): Promise<SaveResult> {
+    const current = await this.get(locationId);
+    if (current.version !== version) return { kind: "conflict", current };
+    const next: Staffing = {
+      windows,
+      version: version + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    this.rows.set(locationId, next);
+    return { kind: "ok", staffing: next };
+  }
+}
+
 export class InMemoryRateLimiter implements RateLimiter {
   counts = new Map<string, number>();
   async hit(key: string, limit: number) {
@@ -239,11 +267,13 @@ export function makeTestApp(
   const rateLimiter = new InMemoryRateLimiter();
   const mailer = new CapturingMailer();
   const locations = new InMemoryLocationRepository();
+  const staffing = new InMemoryStaffingRepository();
   const app = createApp({
     logger: pino({ level: "silent" }),
     buildInfo: { version: "1.2.3", commit: "abc123", startedAt: new Date() },
     checkDatabase: async () => opts.databaseOk ?? true,
     locations,
+    staffing,
     auth: {
       repository,
       rateLimiter,
@@ -256,5 +286,5 @@ export function makeTestApp(
       clientIp: () => "203.0.113.7",
     },
   });
-  return { app, repository, rateLimiter, mailer, locations };
+  return { app, repository, rateLimiter, mailer, locations, staffing };
 }

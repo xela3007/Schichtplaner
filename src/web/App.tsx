@@ -7,6 +7,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { LocationDetailPage } from "@/pages/locations/LocationDetailPage";
 import { LocationFormPage } from "@/pages/locations/LocationFormPage";
 import { LocationListPage } from "@/pages/locations/LocationListPage";
+import { StaffingFormPage } from "@/pages/locations/StaffingFormPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SignupPage } from "@/pages/SignupPage";
 import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
@@ -54,6 +55,14 @@ export function App() {
               element={
                 <RequireAuth>
                   <LocationFormPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/standorte/:id/bedarf"
+              element={
+                <RequireAuth>
+                  <StaffingFormPage />
                 </RequireAuth>
               }
             />

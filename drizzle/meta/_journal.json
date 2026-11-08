@@ -36,6 +36,13 @@
       "when": 1794128296279,
       "tag": "0004_seed_planner",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794137420788,
+      "tag": "0005_location_staffing",
+      "breakpoints": true
     }
   ]
 }
