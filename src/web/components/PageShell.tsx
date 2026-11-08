@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 /** Nav entries; `anyOf` hides an entry from users without any of those permissions (UI hint only, ADR-010). */
 const NAV: { to: string; label: string; anyOf?: string[] }[] = [
+  { to: "/schichtplan", label: "Schichtplan", anyOf: ["schedule.manage"] },
   { to: "/standorte", label: "Standorte" },
   {
     to: "/mitarbeiter",
@@ -44,7 +45,10 @@ export function PageShell({ children }: { children: ReactNode }) {
             </span>
           </Link>
           {status === "authenticated" && (
-            <nav aria-label="Hauptnavigation" className="flex gap-5 text-sm">
+            <nav
+              aria-label="Hauptnavigation"
+              className="flex flex-wrap gap-x-5 gap-y-1 text-sm"
+            >
               {NAV.filter(
                 (n) => !n.anyOf || n.anyOf.some((p) => permissions.includes(p)),
               ).map((n) => (

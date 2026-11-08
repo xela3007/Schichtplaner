@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
 import { useCan } from "@/lib/permissions";
+import { todayInBerlin } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const SHORT: Record<Weekday, string> = {
@@ -34,10 +35,6 @@ const SHORT: Record<Weekday, string> = {
   sat: "Sa",
   sun: "So",
 };
-
-/** Today in Europe/Berlin as YYYY-MM-DD. */
-export const todayInBerlin = () =>
-  new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
 
 function Entries({
   absences,

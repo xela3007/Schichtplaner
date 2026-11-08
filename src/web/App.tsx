@@ -15,6 +15,7 @@ import { LocationListPage } from "@/pages/locations/LocationListPage";
 import { StaffingFormPage } from "@/pages/locations/StaffingFormPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SignupPage } from "@/pages/SignupPage";
+import { SchedulePage } from "@/pages/schedule/SchedulePage";
 import { VerifyEmailPage } from "@/pages/VerifyEmailPage";
 
 const queryClient = new QueryClient({
@@ -116,6 +117,14 @@ export function App() {
               element={
                 <RequireAuth>
                   <AvailabilityWeekPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/schichtplan"
+              element={
+                <RequireAuth>
+                  <SchedulePage />
                 </RequireAuth>
               }
             />

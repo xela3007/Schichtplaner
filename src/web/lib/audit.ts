@@ -11,4 +11,6 @@ export const AUDIT_ACTION_LABELS: Record<AuditEntry["action"], string> = {
   rule_added: "Regel hinzugefügt",
   rule_changed: "Regel geändert",
   rule_deleted: "Regel gelöscht",
+  assigned: "eingeteilt",
+  unassigned: "ausgeteilt",
 };

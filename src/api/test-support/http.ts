@@ -14,6 +14,7 @@ export const plannerAuth = () =>
     "locations.manage",
     "employees.manage",
     "availability.manage",
+    "schedule.manage",
   ]);
 export const memberAuth = () => bearer(MEMBER_ID, []);
 

@@ -39,7 +39,7 @@ export default defineConfig({
       // Pages live under /standorte, the API under /locations — no collision.
       "^/locations(/.*)?(\\?.*)?$": api,
       // Pages live under /mitarbeiter; employee API + Auswahllisten in English.
-      "^/(employees|contract-types|qualifications|system-accesses|absences|availability-rules|availability)(/.*)?(\\?.*)?$":
+      "^/(employees|contract-types|qualifications|system-accesses|absences|availability-rules|availability|schedule)(/.*)?(\\?.*)?$":
         api,
     },
   },

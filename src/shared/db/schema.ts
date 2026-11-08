@@ -391,3 +391,39 @@ export const availabilityRules = pgTable(
     ),
   ],
 );
+
+// --- Schichtplan: assignments of employees to shifts -------------------------
+// Calendar date + local "HH:MM" (ADR-004 "Planungsdaten mit Kalendertag").
+// shift_start/shift_end anchor the staffing window it was assigned to.
+// The no-overlap exclusion constraint (btree_gist) is added by hand in
+// migration 0010 — drizzle-kit can't express it.
+export const shiftAssignments = pgTable(
+  "shift_assignments",
+  {
+    id: id(),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => locations.id),
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id),
+    date: date("date", { mode: "string" }).notNull(),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    shiftStart: text("shift_start").notNull(),
+    shiftEnd: text("shift_end").notNull(),
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps,
+  },
+  (t) => [
+    index("shift_assignments_date_location_idx").on(t.date, t.locationId),
+    index("shift_assignments_employee_date_idx").on(t.employeeId, t.date),
+    check(
+      "shift_assignments_time_check",
+      sql`${t.startTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${t.endTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${t.startTime} < ${t.endTime}`,
+    ),
+  ],
+);

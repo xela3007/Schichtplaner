@@ -1,0 +1,286 @@
+import { sql } from "drizzle-orm";
+import { v7 as uuidv7 } from "uuid";
+import type { Absence, AvailabilityRule } from "#shared/availability.js";
+import { addDays } from "#shared/availability.js";
+import {
+  absences,
+  auditEvents,
+  availabilityRules,
+  contractTypes,
+  employeeLocations,
+  employees,
+  locationStaffing,
+  locations,
+  shiftAssignments,
+  users,
+} from "#shared/db/schema.js";
+import type { AuditEntry } from "#shared/locations.js";
+import type {
+  AssignInput,
+  Assignment,
+  ScheduleWeek,
+} from "#shared/schedule.js";
+import type { Db } from "../db/client.js";
+
+export const ENTITY_TYPE = "shift_assignment";
+
+export type AssignResult =
+  | { kind: "ok"; assignment: Assignment }
+  | { kind: "overlap" };
+export type RemoveResult =
+  | { kind: "ok"; assignment: Assignment }
+  | { kind: "conflict"; current: Assignment }
+  | { kind: "not_found" };
+export type DeactivateResult =
+  | { kind: "ok"; removed: number }
+  | { kind: "conflict" }
+  | { kind: "not_found" };
+export type ScheduleHistoryEntry = AuditEntry & { employeeName: string | null };
+export type Target = { employeeId: string } | { locationId: string };
+
+export interface ScheduleRepository {
+  week(start: string, today: string): Promise<ScheduleWeek>;
+  get(id: string): Promise<Assignment | null>;
+  assign(input: AssignInput, actorId: string): Promise<AssignResult>;
+  unassign(id: string, version: number, actorId: string): Promise<RemoveResult>;
+  history(locationId: string, start: string): Promise<ScheduleHistoryEntry[]>;
+  /** Assignments with date > today. */
+  futureCount(target: Target, today: string): Promise<number>;
+  /** ONE statement: remove assignments after today, audit them, deactivate the employee/location (+ its audit). */
+  removeFutureAndDeactivate(
+    target: Target,
+    version: number,
+    today: string,
+    actorId: string,
+  ): Promise<DeactivateResult>;
+}
+
+const COLS =
+  sql.raw(`id, location_id as "locationId", employee_id as "employeeId", date::text as "date",
+  start_time as "start", end_time as "end", shift_start as "shiftStart", shift_end as "shiftEnd", version, updated_at as "updatedAt"`);
+type Raw<T> = Omit<T, "updatedAt"> & { updatedAt: string | Date };
+const iso = (v: string | Date) => new Date(v).toISOString();
+const toAssignment = (r: Raw<Assignment>): Assignment => ({
+  ...r,
+  updatedAt: iso(r.updatedAt),
+});
+const snapshot = (
+  a: Pick<
+    Assignment,
+    "date" | "employeeId" | "start" | "end" | "shiftStart" | "shiftEnd"
+  >,
+) => ({
+  date: a.date,
+  employeeId: a.employeeId,
+  start: a.start,
+  end: a.end,
+  shiftStart: a.shiftStart,
+  shiftEnd: a.shiftEnd,
+});
+
+function isExclusionViolation(error: unknown) {
+  const e = error as { code?: string; cause?: { code?: string } };
+  return (e.code ?? e.cause?.code) === "23P01";
+}
+
+export class DrizzleScheduleRepository implements ScheduleRepository {
+  constructor(private readonly db: Db) {}
+
+  async week(start: string, today: string): Promise<ScheduleWeek> {
+    const end = addDays(start, 6);
+    const [locs, asg] = await Promise.all([
+      this.db.execute<{
+        id: string;
+        name: string;
+        openingHours: ScheduleWeek["locations"][number]["openingHours"];
+        windows: unknown;
+      }>(sql`
+        select l.id, l.name, l.opening_hours as "openingHours", coalesce(s.windows, '[]'::jsonb) as windows
+        from ${locations} l left join ${locationStaffing} s on s.location_id = l.id
+        where l.active order by lower(l.name)`),
+      this.db.execute<Raw<Assignment>>(sql`
+        select ${COLS} from ${shiftAssignments} where date between ${start}::date and ${end}::date
+        order by date, start_time`),
+    ]);
+    const assignments = asg.rows.map(toAssignment);
+    const assignedIds = [...new Set(assignments.map((a) => a.employeeId))];
+    const emps = await this.db.execute<ScheduleWeek["employees"][number]>(sql`
+      select e.id, e.first_name as "firstName", e.last_name as "lastName", e.active, e.is_floater as "isFloater",
+        coalesce(e.weekly_minutes_override, ct.weekly_minutes) as "weeklyTarget",
+        ct.allowed_shift_minutes as "allowedShiftMinutes", ct.max_daily_minutes as "maxDailyMinutes",
+        coalesce((select json_agg(json_build_object('locationId', el.location_id, 'trained', el.trained, 'preference', el.preference))
+          from ${employeeLocations} el where el.employee_id = e.id), '[]') as locations
+      from ${employees} e join ${contractTypes} ct on ct.id = e.contract_type_id
+      where e.active or e.id::text in (select jsonb_array_elements_text(${JSON.stringify(assignedIds)}::jsonb))
+      order by lower(e.last_name), lower(e.first_name)`);
+    const ids = JSON.stringify(emps.rows.map((e) => e.id));
+    const [abs, rules] = await Promise.all([
+      this.db.execute<Raw<Absence>>(sql`
+        select id, employee_id as "employeeId", kind, start_date::text as "startDate", end_date::text as "endDate",
+          start_time as "startTime", end_time as "endTime", note, version, updated_at as "updatedAt"
+        from ${absences}
+        where employee_id::text in (select jsonb_array_elements_text(${ids}::jsonb))
+          and start_date <= ${end}::date and end_date >= ${start}::date`),
+      this.db.execute<Raw<AvailabilityRule>>(sql`
+        select id, employee_id as "employeeId", weekdays, start_time as "startTime", end_time as "endTime", version, updated_at as "updatedAt"
+        from ${availabilityRules} where employee_id::text in (select jsonb_array_elements_text(${ids}::jsonb))`),
+    ]);
+    return {
+      start,
+      today,
+      locations: locs.rows.map((l) => ({
+        id: l.id,
+        name: l.name,
+        openingHours: l.openingHours,
+        staffingWindows:
+          l.windows as ScheduleWeek["locations"][number]["staffingWindows"],
+      })),
+      employees: emps.rows.map((e) => ({
+        ...e,
+        allowedShiftMinutes: (e.allowedShiftMinutes ?? []).map(Number),
+      })),
+      assignments,
+      absences: abs.rows.map((a) => ({ ...a, updatedAt: iso(a.updatedAt) })),
+      rules: rules.rows.map((r) => ({ ...r, updatedAt: iso(r.updatedAt) })),
+    };
+  }
+
+  async get(id: string) {
+    const r = await this.db.execute<Raw<Assignment>>(
+      sql`select ${COLS} from ${shiftAssignments} where id = ${id}`,
+    );
+    return r.rows[0] ? toAssignment(r.rows[0]) : null;
+  }
+
+  async assign(input: AssignInput, actorId: string): Promise<AssignResult> {
+    try {
+      const r = await this.db.execute<Raw<Assignment>>(sql`
+        with t as (
+          insert into ${shiftAssignments} (id, location_id, employee_id, date, start_time, end_time, shift_start, shift_end, created_by)
+          values (${uuidv7()}, ${input.locationId}, ${input.employeeId}, ${input.date}::date, ${input.start}, ${input.end},
+            ${input.shiftStart}, ${input.shiftEnd}, ${actorId})
+          returning ${COLS}
+        ), a as (
+          insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+          select ${uuidv7()}, ${ENTITY_TYPE}, t."locationId", 'assigned', ${actorId},
+            ${JSON.stringify({ entry: { from: null, to: snapshot(input) } })}::jsonb from t
+        )
+        select * from t`);
+      return {
+        kind: "ok",
+        assignment: toAssignment(r.rows[0] as Raw<Assignment>),
+      };
+    } catch (error) {
+      if (isExclusionViolation(error)) return { kind: "overlap" };
+      throw error;
+    }
+  }
+
+  async unassign(
+    id: string,
+    version: number,
+    actorId: string,
+  ): Promise<RemoveResult> {
+    const before = await this.get(id);
+    if (!before) return { kind: "not_found" };
+    const r = await this.db.execute<Raw<Assignment>>(sql`
+      with t as (
+        delete from ${shiftAssignments} where id = ${id} and version = ${version} returning ${COLS}
+      ), a as (
+        insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+        select ${uuidv7()}, ${ENTITY_TYPE}, t."locationId", 'unassigned', ${actorId},
+          ${JSON.stringify({ entry: { from: snapshot(before), to: null } })}::jsonb from t
+      )
+      select * from t`);
+    if (r.rows[0]) return { kind: "ok", assignment: toAssignment(r.rows[0]) };
+    const current = await this.get(id);
+    return current ? { kind: "conflict", current } : { kind: "not_found" };
+  }
+
+  async history(
+    locationId: string,
+    start: string,
+  ): Promise<ScheduleHistoryEntry[]> {
+    const end = addDays(start, 6);
+    const r = await this.db.execute<{
+      id: string;
+      action: AuditEntry["action"];
+      actorEmail: string | null;
+      occurredAt: string | Date;
+      changes: AuditEntry["changes"];
+      employeeName: string | null;
+    }>(sql`
+      select a.id, a.action, u.email as "actorEmail", a.occurred_at as "occurredAt", a.changes,
+        e.first_name || ' ' || e.last_name as "employeeName"
+      from ${auditEvents} a left join ${users} u on u.id = a.actor_user_id
+      left join ${employees} e on e.id = (coalesce(a.changes->'entry'->'to'->>'employeeId', a.changes->'entry'->'from'->>'employeeId'))::uuid
+      where a.entity_type = ${ENTITY_TYPE} and a.entity_id = ${locationId}
+        and coalesce(a.changes->'entry'->'to'->>'date', a.changes->'entry'->'from'->>'date') between ${start} and ${end}
+      order by a.occurred_at desc, a.id desc`);
+    return r.rows.map((x) => ({ ...x, occurredAt: iso(x.occurredAt) }));
+  }
+
+  private where(target: Target) {
+    return "employeeId" in target
+      ? sql`employee_id = ${target.employeeId}`
+      : sql`location_id = ${target.locationId}`;
+  }
+
+  async futureCount(target: Target, today: string) {
+    const r = await this.db.execute<{ n: number }>(
+      sql`select count(*)::int as n from ${shiftAssignments} where ${this.where(target)} and date > ${today}::date`,
+    );
+    return r.rows[0]?.n ?? 0;
+  }
+
+  async removeFutureAndDeactivate(
+    target: Target,
+    version: number,
+    today: string,
+    actorId: string,
+  ): Promise<DeactivateResult> {
+    const isEmployee = "employeeId" in target;
+    const table = isEmployee ? employees : locations;
+    const id = isEmployee ? target.employeeId : target.locationId;
+    const reason = isEmployee ? "employee_deactivated" : "location_deactivated";
+    // Audit IDs come from the application (ADR-004): read the affected
+    // assignments first and pair each with a v7 id. An assignment created in
+    // the tiny window in between survives and shows up as a conflict.
+    const future = await this.db.execute<{ id: string }>(
+      sql`select id from ${shiftAssignments} where ${this.where(target)} and date > ${today}::date`,
+    );
+    const pairs = JSON.stringify(
+      future.rows.map((r) => ({ a: r.id, audit: uuidv7() })),
+    );
+    const r = await this.db.execute<{ removed: number; updated: number }>(sql`
+      with t as (
+        update ${table} set active = false, version = version + 1, updated_at = now()
+        where id = ${id} and version = ${version} and active
+        returning id
+      ), p as (
+        select (x->>'a')::uuid as assignment_id, (x->>'audit')::uuid as audit_id from jsonb_array_elements(${pairs}::jsonb) x
+      ), d as (
+        delete from ${shiftAssignments} s using p
+        where s.id = p.assignment_id and exists (select 1 from t)
+        returning p.audit_id, s.location_id, s.employee_id, s.date::text as date, s.start_time, s.end_time, s.shift_start, s.shift_end
+      ), a1 as (
+        insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+        select ${uuidv7()}::uuid, ${isEmployee ? "employee" : "location"}::text, t.id, 'deactivated', ${actorId}::uuid,
+          '{"active":{"from":true,"to":false}}'::jsonb from t
+      ), a2 as (
+        insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+        select d.audit_id, ${ENTITY_TYPE}::text, d.location_id, 'unassigned', ${actorId}::uuid,
+          jsonb_build_object('entry', jsonb_build_object('from', jsonb_build_object(
+            'date', d.date, 'employeeId', d.employee_id, 'start', d.start_time, 'end', d.end_time,
+            'shiftStart', d.shift_start, 'shiftEnd', d.shift_end), 'to', null), 'reason', jsonb_build_object('from', null, 'to', ${reason}::text))
+        from d
+      )
+      select (select count(*)::int from d) as removed, (select count(*)::int from t) as updated`);
+    const row = r.rows[0];
+    if (row && row.updated > 0) return { kind: "ok", removed: row.removed };
+    const exists = await this.db.execute(
+      sql`select 1 from ${table} where id = ${id}`,
+    );
+    return exists.rows.length ? { kind: "conflict" } : { kind: "not_found" };
+  }
+}

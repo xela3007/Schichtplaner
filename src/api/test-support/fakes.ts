@@ -31,6 +31,7 @@ import {
   InMemoryContractTypeRepository,
   InMemoryEmployeeRepository,
 } from "./fake-employees.js";
+import { InMemoryScheduleRepository } from "./fake-schedule.js";
 
 export const TEST_SECRET = "test-secret-that-is-long-enough-1234567890";
 
@@ -73,7 +74,12 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
   /** role key → permissions, mirrors the seeded roles */
   rolePermissions: Record<string, string[]> = {
-    planner: ["locations.manage", "employees.manage", "availability.manage"],
+    planner: [
+      "locations.manage",
+      "employees.manage",
+      "availability.manage",
+      "schedule.manage",
+    ],
   };
   userRoleKeys = new Map<string, Set<string>>();
 
@@ -269,6 +275,7 @@ export function makeTestApp(
     cookiePolicy?: CookiePolicy;
     corsOrigins?: string[];
     plannerEmails?: string[];
+    today?: () => string;
   } = {},
 ) {
   const repository = new InMemoryAuthRepository();
@@ -285,6 +292,13 @@ export function makeTestApp(
     qualifications: new InMemoryCatalogRepository(),
     systemAccesses: new InMemoryCatalogRepository(),
   };
+  const schedule = new InMemoryScheduleRepository({
+    locations,
+    staffing,
+    employees,
+    contractTypes: catalogs.contractTypes,
+    availability,
+  });
   const app = createApp({
     logger: pino({ level: "silent" }),
     buildInfo: { version: "1.2.3", commit: "abc123", startedAt: new Date() },
@@ -294,6 +308,8 @@ export function makeTestApp(
     employees,
     catalogs,
     availability,
+    schedule,
+    today: opts.today,
     auth: {
       repository,
       rateLimiter,
@@ -316,5 +332,6 @@ export function makeTestApp(
     employees,
     catalogs,
     availability,
+    schedule,
   };
 }

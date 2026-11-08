@@ -24,7 +24,9 @@ import { healthRoutes } from "./routes/health.js";
 import { locationRoutes } from "./routes/locations.js";
 import { meRoutes } from "./routes/me.js";
 import { referenceRoutes } from "./routes/reference.js";
+import { scheduleRoutes } from "./routes/schedule.js";
 import { staffingRoutes } from "./routes/staffing.js";
+import type { ScheduleRepository } from "./schedule/repository.js";
 import type { StaffingRepository } from "./staffing/repository.js";
 import type { AppEnv } from "./types.js";
 
@@ -36,6 +38,9 @@ export type AppDeps = {
   staffing: StaffingRepository;
   employees: EmployeeRepository;
   availability: AvailabilityRepository;
+  schedule: ScheduleRepository;
+  /** Injected for tests; defaults to today in Europe/Berlin. */
+  today?: () => string;
   catalogs: {
     contractTypes: ContractTypeRepository;
     qualifications: CatalogRepository;
@@ -64,6 +69,8 @@ export function createApp({
   employees,
   catalogs,
   availability,
+  schedule,
+  today,
 }: AppDeps) {
   const app = new Hono<AppEnv>();
 
@@ -129,7 +136,7 @@ export function createApp({
   app.use("/locations", authenticated);
   app.use("/locations/*", authenticated);
   app.route("/", staffingRoutes(locations, staffing));
-  app.route("/", locationRoutes(locations));
+  app.route("/", locationRoutes(locations, schedule, today));
   for (const prefix of [
     "/employees",
     "/contract-types",
@@ -138,13 +145,18 @@ export function createApp({
     "/absences",
     "/availability-rules",
     "/availability",
+    "/schedule",
   ]) {
     app.use(prefix, authenticated);
     app.use(`${prefix}/*`, authenticated);
   }
   app.route("/", availabilityRoutes(availability, employees));
   app.route("/", catalogRoutes(catalogs));
-  app.route("/", employeeRoutes({ employees, locations, ...catalogs }));
+  app.route("/", scheduleRoutes(schedule, today));
+  app.route(
+    "/",
+    employeeRoutes({ employees, locations, schedule, today, ...catalogs }),
+  );
 
   app.notFound((c) =>
     c.json({ error: "not_found", requestId: c.get("requestId") }, 404),

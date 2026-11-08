@@ -15,9 +15,11 @@ import type {
   EmployeeResult,
 } from "../employees/repository.js";
 import type { LocationRepository } from "../locations/repository.js";
+import type { ScheduleRepository } from "../schedule/repository.js";
 import type { AppEnv } from "../types.js";
 import { parseJson } from "../validation.js";
 import { EMPLOYEES_MANAGE, notFound, UUID } from "./catalogs.js";
+import { deactivationGate } from "./schedule.js";
 
 type Deps = {
   employees: EmployeeRepository;
@@ -25,6 +27,8 @@ type Deps = {
   qualifications: CatalogRepository;
   systemAccesses: CatalogRepository;
   locations: LocationRepository;
+  schedule?: ScheduleRepository;
+  today?: () => string;
 };
 
 type Issue = { field: string; message: string };
@@ -180,14 +184,32 @@ export function employeeRoutes(deps: Deps) {
     app.post(`/employees/:id/${action}`, write, async (c) => {
       const id = c.req.param("id");
       if (!UUID.test(id)) return notFound(c);
-      const parsed = await parseJson(c, VersionOnly);
-      if ("response" in parsed) return parsed.response;
+      let version: number;
+      if (!active && deps.schedule) {
+        // Assignments after today need a confirmed removal (story a238fced).
+        const gate = await deactivationGate(
+          c,
+          deps.schedule,
+          { employeeId: id },
+          deps.today,
+        );
+        if ("response" in gate) return gate.response;
+        if ("done" in gate) {
+          const employee = await deps.employees.get(id);
+          return employee ? c.json(employee, 200) : notFound(c);
+        }
+        version = gate.proceed.version;
+      } else {
+        const parsed = await parseJson(c, VersionOnly);
+        if ("response" in parsed) return parsed.response;
+        version = parsed.data.version;
+      }
       return respond(
         c,
         await deps.employees.setActive(
           id,
           active,
-          parsed.data.version,
+          version,
           c.get("auth").userId,
         ),
       );

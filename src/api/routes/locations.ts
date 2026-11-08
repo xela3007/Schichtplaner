@@ -9,8 +9,10 @@ import type {
   LocationRepository,
   WriteResult,
 } from "../locations/repository.js";
+import type { ScheduleRepository } from "../schedule/repository.js";
 import type { AppEnv } from "../types.js";
 import { parseJson } from "../validation.js";
+import { deactivationGate } from "./schedule.js";
 
 export const MANAGE = "locations.manage";
 
@@ -52,7 +54,11 @@ function respond(
 }
 
 /** Mounted behind requireAuth. Writes and history need `locations.manage` (ADR-010). */
-export function locationRoutes(repo: LocationRepository) {
+export function locationRoutes(
+  repo: LocationRepository,
+  schedule?: ScheduleRepository,
+  today?: () => string,
+) {
   const app = new Hono<AppEnv>();
 
   app.get("/locations", async (c) => {
@@ -104,16 +110,29 @@ export function locationRoutes(repo: LocationRepository) {
       async (c) => {
         const id = c.req.param("id");
         if (!UUID.test(id)) return notFound(c);
-        const parsed = await parseJson(c, VersionOnly);
-        if ("response" in parsed) return parsed.response;
+        let version: number;
+        if (!active && schedule) {
+          // Assignments after today need a confirmed removal (story a238fced).
+          const gate = await deactivationGate(
+            c,
+            schedule,
+            { locationId: id },
+            today,
+          );
+          if ("response" in gate) return gate.response;
+          if ("done" in gate) {
+            const location = await repo.get(id);
+            return location ? c.json(location, 200) : notFound(c);
+          }
+          version = gate.proceed.version;
+        } else {
+          const parsed = await parseJson(c, VersionOnly);
+          if ("response" in parsed) return parsed.response;
+          version = parsed.data.version;
+        }
         return respond(
           c,
-          await repo.setActive(
-            id,
-            active,
-            parsed.data.version,
-            c.get("auth").userId,
-          ),
+          await repo.setActive(id, active, version, c.get("auth").userId),
         );
       },
     );

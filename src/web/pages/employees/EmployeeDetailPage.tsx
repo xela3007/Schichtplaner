@@ -34,6 +34,10 @@ const RuleSnapshot = z.object({
 
 import { AvailabilitySection } from "@/components/AvailabilitySection";
 import { PageShell } from "@/components/PageShell";
+import {
+  pendingAssignments,
+  RemoveAssignmentsConfirm,
+} from "@/components/RemoveAssignmentsConfirm";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -225,15 +229,25 @@ export function EmployeeDetailPage() {
   });
 
   const toggle = useMutation({
-    mutationFn: (e: Employee) =>
+    mutationFn: ({
+      e,
+      removeAssignments,
+    }: {
+      e: Employee;
+      removeAssignments?: boolean;
+    }) =>
       apiFetch(`/employees/${e.id}/${e.active ? "deactivate" : "reactivate"}`, {
         method: "POST",
-        body: { version: e.version },
+        body: {
+          version: e.version,
+          ...(removeAssignments ? { removeAssignments: true } : {}),
+        },
         schema: Employee,
         auth: true,
       }),
     onSettled: () => {
       setConfirming(false);
+      void queryClient.invalidateQueries({ queryKey: ["schedule-week"] });
       void queryClient.invalidateQueries({ queryKey: ["employee", id] });
       void queryClient.invalidateQueries({ queryKey: ["employees"] });
       void queryClient.invalidateQueries({
@@ -447,7 +461,7 @@ export function EmployeeDetailPage() {
                 <Button
                   size="sm"
                   disabled={toggle.isPending}
-                  onClick={() => toggle.mutate(e)}
+                  onClick={() => toggle.mutate({ e: e })}
                 >
                   {e.active ? "Ja, deaktivieren" : "Ja, reaktivieren"}
                 </Button>
@@ -461,7 +475,15 @@ export function EmployeeDetailPage() {
               </fieldset>
             )}
           </div>
-          {toggle.isError && (
+          {pendingAssignments(toggle.error) !== null && (
+            <RemoveAssignmentsConfirm
+              count={pendingAssignments(toggle.error) as number}
+              busy={toggle.isPending}
+              onConfirm={() => toggle.mutate({ e: e, removeAssignments: true })}
+              onCancel={() => toggle.reset()}
+            />
+          )}
+          {toggle.isError && pendingAssignments(toggle.error) === null && (
             <Alert variant="destructive">
               <AlertDescription>
                 {conflict

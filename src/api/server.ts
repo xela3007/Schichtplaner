@@ -16,6 +16,7 @@ import { loadEnv } from "./env.js";
 import { DrizzleLocationRepository } from "./locations/repository.js";
 import { createLogger } from "./logger.js";
 import { ConsoleMailer } from "./mail/mailer.js";
+import { DrizzleScheduleRepository } from "./schedule/repository.js";
 import { DrizzleStaffingRepository } from "./staffing/repository.js";
 
 const env = loadEnv();
@@ -40,6 +41,7 @@ const app = createApp({
   staffing: new DrizzleStaffingRepository(db),
   employees: new DrizzleEmployeeRepository(db),
   availability: new DrizzleAvailabilityRepository(db),
+  schedule: new DrizzleScheduleRepository(db),
   catalogs: {
     contractTypes: new DrizzleContractTypeRepository(db),
     qualifications: DrizzleCatalogRepository.qualifications(db),

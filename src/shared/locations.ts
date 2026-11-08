@@ -128,6 +128,9 @@ export const AuditAction = z.enum([
   "rule_added",
   "rule_changed",
   "rule_deleted",
+  // shift plan (entity shift_assignment, recorded on the location)
+  "assigned",
+  "unassigned",
 ]);
 export type AuditAction = z.infer<typeof AuditAction>;
 

@@ -71,6 +71,20 @@
       "when": 1794146345559,
       "tag": "0009_seed_availability_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794149554843,
+      "tag": "0010_schedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794149555201,
+      "tag": "0011_seed_schedule_permission",
+      "breakpoints": true
     }
   ]
 }

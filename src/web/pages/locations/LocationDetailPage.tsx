@@ -10,6 +10,10 @@ import {
 } from "#shared/locations.js";
 import { Staffing } from "#shared/staffing.js";
 import { PageShell } from "@/components/PageShell";
+import {
+  pendingAssignments,
+  RemoveAssignmentsConfirm,
+} from "@/components/RemoveAssignmentsConfirm";
 import { StaffingOverview } from "@/components/StaffingOverview";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -159,18 +163,28 @@ export function LocationDetailPage() {
   });
 
   const toggle = useMutation({
-    mutationFn: (location: Location) =>
+    mutationFn: ({
+      location,
+      removeAssignments,
+    }: {
+      location: Location;
+      removeAssignments?: boolean;
+    }) =>
       apiFetch(
         `/locations/${location.id}/${location.active ? "deactivate" : "reactivate"}`,
         {
           method: "POST",
-          body: { version: location.version },
+          body: {
+            version: location.version,
+            ...(removeAssignments ? { removeAssignments: true } : {}),
+          },
           schema: Location,
           auth: true,
         },
       ),
     onSettled: () => {
       setConfirming(false);
+      void queryClient.invalidateQueries({ queryKey: ["schedule-week"] });
       void queryClient.invalidateQueries({ queryKey: ["location", id] });
       void queryClient.invalidateQueries({ queryKey: ["locations"] });
       void queryClient.invalidateQueries({
@@ -258,7 +272,7 @@ export function LocationDetailPage() {
               <Button
                 size="sm"
                 disabled={toggle.isPending}
-                onClick={() => toggle.mutate(location)}
+                onClick={() => toggle.mutate({ location: location })}
               >
                 {location.active ? "Ja, deaktivieren" : "Ja, reaktivieren"}
               </Button>
@@ -273,7 +287,17 @@ export function LocationDetailPage() {
           )}
         </div>
       )}
-      {toggle.isError && (
+      {pendingAssignments(toggle.error) !== null && (
+        <RemoveAssignmentsConfirm
+          count={pendingAssignments(toggle.error) as number}
+          busy={toggle.isPending}
+          onConfirm={() =>
+            toggle.mutate({ location: location, removeAssignments: true })
+          }
+          onCancel={() => toggle.reset()}
+        />
+      )}
+      {toggle.isError && pendingAssignments(toggle.error) === null && (
         <Alert variant="destructive">
           <AlertDescription>
             {conflict
