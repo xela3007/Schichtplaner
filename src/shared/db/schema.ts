@@ -204,3 +204,129 @@ export const locationStaffing = pgTable("location_staffing", {
   version: integer("version").notNull().default(1),
   ...timestamps,
 });
+
+// --- Auswahllisten for employee profiles ------------------------------------
+// Entries are never deleted, only deactivated; names unique per list
+// (case-insensitive). Durations in minutes.
+export const contractTypes = pgTable(
+  "contract_types",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    weeklyMinutes: integer("weekly_minutes").notNull(),
+    typicalShiftMinutes: integer("typical_shift_minutes"),
+    allowedShiftMinutes: integer("allowed_shift_minutes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::integer[]`),
+    maxDailyMinutes: integer("max_daily_minutes"),
+    active: boolean("active").notNull().default(true),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("contract_types_name_lower_idx").on(sql`lower(${t.name})`),
+  ],
+);
+
+export const qualifications = pgTable(
+  "qualifications",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    active: boolean("active").notNull().default(true),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("qualifications_name_lower_idx").on(sql`lower(${t.name})`),
+  ],
+);
+
+export const systemAccesses = pgTable(
+  "system_accesses",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    active: boolean("active").notNull().default(true),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("system_accesses_name_lower_idx").on(sql`lower(${t.name})`),
+  ],
+);
+
+// --- Employees (Mitarbeiterprofile) — no login, maintained by the planner ----
+// mobile is E.164; phone/e-mail are PII and never logged (ADR-013).
+export const employees = pgTable(
+  "employees",
+  {
+    id: id(),
+    firstName: text("first_name").notNull(),
+    lastName: text("last_name").notNull(),
+    personnelNo: text("personnel_no"),
+    mobile: text("mobile").notNull(),
+    email: text("email"),
+    contractTypeId: uuid("contract_type_id")
+      .notNull()
+      .references(() => contractTypes.id),
+    weeklyMinutesOverride: integer("weekly_minutes_override"),
+    isFloater: boolean("is_floater").notNull().default(false),
+    note: text("note"),
+    active: boolean("active").notNull().default(true),
+    version: integer("version").notNull().default(1),
+    ...timestamps,
+  },
+  (t) => [
+    index("employees_name_idx").on(t.lastName, t.firstName),
+    index("employees_contract_type_idx").on(t.contractTypeId),
+  ],
+);
+
+export const employeeQualifications = pgTable(
+  "employee_qualifications",
+  {
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    qualificationId: uuid("qualification_id")
+      .notNull()
+      .references(() => qualifications.id),
+  },
+  (t) => [primaryKey({ columns: [t.employeeId, t.qualificationId] })],
+);
+
+export const employeeSystemAccesses = pgTable(
+  "employee_system_accesses",
+  {
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    systemAccessId: uuid("system_access_id")
+      .notNull()
+      .references(() => systemAccesses.id),
+  },
+  (t) => [primaryKey({ columns: [t.employeeId, t.systemAccessId] })],
+);
+
+export const employeeLocations = pgTable(
+  "employee_locations",
+  {
+    employeeId: uuid("employee_id")
+      .notNull()
+      .references(() => employees.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => locations.id, { onDelete: "cascade" }),
+    trained: boolean("trained").notNull(),
+    preference: text("preference").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.employeeId, t.locationId] }),
+    check(
+      "employee_locations_preference_check",
+      sql`${t.preference} in ('preferred', 'neutral', 'blocked')`,
+    ),
+  ],
+);

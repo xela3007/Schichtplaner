@@ -8,9 +8,16 @@ import type { RateLimiter } from "./auth/rate-limit.js";
 import type { AuthRepository } from "./auth/repository.js";
 import { AuthService } from "./auth/service.js";
 import type { BuildInfo } from "./build-info.js";
+import type {
+  CatalogRepository,
+  ContractTypeRepository,
+} from "./catalogs/repository.js";
+import type { EmployeeRepository } from "./employees/repository.js";
 import type { LocationRepository } from "./locations/repository.js";
 import type { Mailer } from "./mail/mailer.js";
 import { authRoutes } from "./routes/auth.js";
+import { catalogRoutes } from "./routes/catalogs.js";
+import { employeeRoutes } from "./routes/employees.js";
 import { healthRoutes } from "./routes/health.js";
 import { locationRoutes } from "./routes/locations.js";
 import { meRoutes } from "./routes/me.js";
@@ -25,6 +32,12 @@ export type AppDeps = {
   checkDatabase: () => Promise<boolean>;
   locations: LocationRepository;
   staffing: StaffingRepository;
+  employees: EmployeeRepository;
+  catalogs: {
+    contractTypes: ContractTypeRepository;
+    qualifications: CatalogRepository;
+    systemAccesses: CatalogRepository;
+  };
   auth: {
     repository: AuthRepository;
     rateLimiter: RateLimiter;
@@ -45,6 +58,8 @@ export function createApp({
   auth,
   locations,
   staffing,
+  employees,
+  catalogs,
 }: AppDeps) {
   const app = new Hono<AppEnv>();
 
@@ -111,6 +126,17 @@ export function createApp({
   app.use("/locations/*", authenticated);
   app.route("/", staffingRoutes(locations, staffing));
   app.route("/", locationRoutes(locations));
+  for (const prefix of [
+    "/employees",
+    "/contract-types",
+    "/qualifications",
+    "/system-accesses",
+  ]) {
+    app.use(prefix, authenticated);
+    app.use(`${prefix}/*`, authenticated);
+  }
+  app.route("/", catalogRoutes(catalogs));
+  app.route("/", employeeRoutes({ employees, locations, ...catalogs }));
 
   app.notFound((c) =>
     c.json({ error: "not_found", requestId: c.get("requestId") }, 404),

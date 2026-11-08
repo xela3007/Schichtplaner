@@ -46,4 +46,38 @@ describe("PageShell", () => {
     renderShell();
     expect(screen.getByRole("link", { name: "Standorte" })).toBeTruthy();
   });
+
+  it("shows „Mitarbeiter“ only with employees.manage", async () => {
+    for (const [permissions, visible] of [
+      [[], false],
+      [["employees.manage"], true],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                id: "01a1b4ea-7b22-7679-af8a-a22acdbb9001",
+                email: "a@example.org",
+                permissions,
+              }),
+              {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+        ),
+      );
+      session.setToken("token");
+      renderShell();
+      await screen.findByRole("link", { name: "Standorte" });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.queryByRole("link", { name: "Mitarbeiter" }) !== null).toBe(
+        visible,
+      );
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
 });

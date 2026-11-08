@@ -25,6 +25,11 @@ import {
   type SaveResult,
   type StaffingRepository,
 } from "../staffing/repository.js";
+import {
+  InMemoryCatalogRepository,
+  InMemoryContractTypeRepository,
+  InMemoryEmployeeRepository,
+} from "./fake-employees.js";
 
 export const TEST_SECRET = "test-secret-that-is-long-enough-1234567890";
 
@@ -66,7 +71,9 @@ export class InMemoryAuthRepository implements AuthRepository {
     return { userId: v.userId };
   }
   /** role key → permissions, mirrors the seeded roles */
-  rolePermissions: Record<string, string[]> = { planner: ["locations.manage"] };
+  rolePermissions: Record<string, string[]> = {
+    planner: ["locations.manage", "employees.manage"],
+  };
   userRoleKeys = new Map<string, Set<string>>();
 
   async getPermissions(userId: string) {
@@ -268,12 +275,22 @@ export function makeTestApp(
   const mailer = new CapturingMailer();
   const locations = new InMemoryLocationRepository();
   const staffing = new InMemoryStaffingRepository();
+  const employees = new InMemoryEmployeeRepository(locations);
+  const catalogs = {
+    contractTypes: new InMemoryContractTypeRepository((id) =>
+      [...employees.rows.values()].some((e) => e.contractTypeId === id),
+    ),
+    qualifications: new InMemoryCatalogRepository(),
+    systemAccesses: new InMemoryCatalogRepository(),
+  };
   const app = createApp({
     logger: pino({ level: "silent" }),
     buildInfo: { version: "1.2.3", commit: "abc123", startedAt: new Date() },
     checkDatabase: async () => opts.databaseOk ?? true,
     locations,
     staffing,
+    employees,
+    catalogs,
     auth: {
       repository,
       rateLimiter,
@@ -286,5 +303,14 @@ export function makeTestApp(
       clientIp: () => "203.0.113.7",
     },
   });
-  return { app, repository, rateLimiter, mailer, locations, staffing };
+  return {
+    app,
+    repository,
+    rateLimiter,
+    mailer,
+    locations,
+    staffing,
+    employees,
+    catalogs,
+  };
 }

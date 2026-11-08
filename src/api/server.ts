@@ -5,7 +5,12 @@ import { cookiePolicy } from "./auth/cookies.js";
 import { DbRateLimiter } from "./auth/rate-limit.js";
 import { DrizzleAuthRepository } from "./auth/repository.js";
 import { getBuildInfo } from "./build-info.js";
+import {
+  DrizzleCatalogRepository,
+  DrizzleContractTypeRepository,
+} from "./catalogs/repository.js";
 import { createDb } from "./db/client.js";
+import { DrizzleEmployeeRepository } from "./employees/repository.js";
 import { loadEnv } from "./env.js";
 import { DrizzleLocationRepository } from "./locations/repository.js";
 import { createLogger } from "./logger.js";
@@ -32,6 +37,12 @@ const app = createApp({
   checkDatabase: ping,
   locations: new DrizzleLocationRepository(db),
   staffing: new DrizzleStaffingRepository(db),
+  employees: new DrizzleEmployeeRepository(db),
+  catalogs: {
+    contractTypes: new DrizzleContractTypeRepository(db),
+    qualifications: DrizzleCatalogRepository.qualifications(db),
+    systemAccesses: DrizzleCatalogRepository.systemAccesses(db),
+  },
   auth: {
     repository: new DrizzleAuthRepository(db),
     rateLimiter: new DbRateLimiter(db),

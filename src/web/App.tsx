@@ -2,6 +2,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router";
 import { AuthProvider } from "@/auth/AuthProvider";
 import { RequireAuth } from "@/auth/RequireAuth";
+import { CatalogsPage } from "@/pages/employees/CatalogsPage";
+import { EmployeeDetailPage } from "@/pages/employees/EmployeeDetailPage";
+import { EmployeeFormPage } from "@/pages/employees/EmployeeFormPage";
+import { EmployeeListPage } from "@/pages/employees/EmployeeListPage";
 import { HomePage } from "@/pages/HomePage";
 import { LoginPage } from "@/pages/LoginPage";
 import { LocationDetailPage } from "@/pages/locations/LocationDetailPage";
@@ -63,6 +67,46 @@ export function App() {
               element={
                 <RequireAuth>
                   <StaffingFormPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/mitarbeiter"
+              element={
+                <RequireAuth>
+                  <EmployeeListPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/mitarbeiter/neu"
+              element={
+                <RequireAuth>
+                  <EmployeeFormPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/mitarbeiter/listen"
+              element={
+                <RequireAuth>
+                  <CatalogsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/mitarbeiter/:id"
+              element={
+                <RequireAuth>
+                  <EmployeeDetailPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/mitarbeiter/:id/bearbeiten"
+              element={
+                <RequireAuth>
+                  <EmployeeFormPage />
                 </RequireAuth>
               }
             />

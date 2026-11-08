@@ -43,6 +43,20 @@
       "when": 1794137420788,
       "tag": "0005_location_staffing",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794142867872,
+      "tag": "0006_employees",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794142878269,
+      "tag": "0007_seed_employees_permission",
+      "breakpoints": true
     }
   ]
 }

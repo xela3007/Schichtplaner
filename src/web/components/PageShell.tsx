@@ -1,15 +1,24 @@
 import type { ReactNode } from "react";
 import { Link, NavLink } from "react-router";
 import { useAuth } from "@/auth/AuthProvider";
+import { useMe } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+
+/** Nav entries; `permission` hides an entry from users without it (UI hint only, ADR-010). */
+const NAV: { to: string; label: string; permission?: string }[] = [
+  { to: "/standorte", label: "Standorte" },
+  { to: "/mitarbeiter", label: "Mitarbeiter", permission: "employees.manage" },
+];
 
 /** App frame: sticky translucent header with the official Dinexis wordmark. */
 export function PageShell({ children }: { children: ReactNode }) {
   const { status } = useAuth();
+  const permissions = useMe().data?.permissions ?? [];
   return (
     <div className="min-h-svh bg-background">
       <header className="sticky top-0 z-10 border-b border-border bg-background/85 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-5xl items-center gap-6 px-[clamp(16px,4vw,40px)]">
+        {/* Wraps the nav into a second row on narrow phones instead of overlapping. */}
+        <div className="mx-auto flex min-h-16 max-w-5xl flex-wrap items-center gap-x-6 gap-y-1 px-[clamp(16px,4vw,40px)] py-2">
           <Link
             to="/"
             className="flex items-center gap-3 rounded-sm"
@@ -27,19 +36,24 @@ export function PageShell({ children }: { children: ReactNode }) {
           </Link>
           {status === "authenticated" && (
             <nav aria-label="Hauptnavigation" className="flex gap-5 text-sm">
-              <NavLink
-                to="/standorte"
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-sm font-medium underline-offset-[6px] hover:text-brand-700 hover:underline",
-                    isActive
-                      ? "text-brand-700 underline decoration-2"
-                      : "text-ink-2",
-                  )
-                }
-              >
-                Standorte
-              </NavLink>
+              {NAV.filter(
+                (n) => !n.permission || permissions.includes(n.permission),
+              ).map((n) => (
+                <NavLink
+                  key={n.to}
+                  to={n.to}
+                  className={({ isActive }) =>
+                    cn(
+                      "rounded-sm font-medium underline-offset-[6px] hover:text-brand-700 hover:underline",
+                      isActive
+                        ? "text-brand-700 underline decoration-2"
+                        : "text-ink-2",
+                    )
+                  }
+                >
+                  {n.label}
+                </NavLink>
+              ))}
             </nav>
           )}
         </div>

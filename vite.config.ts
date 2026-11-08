@@ -38,6 +38,9 @@ export default defineConfig({
       "^/auth/(signup|verify-email|login|refresh|logout)(\\?.*)?$": api,
       // Pages live under /standorte, the API under /locations — no collision.
       "^/locations(/.*)?(\\?.*)?$": api,
+      // Pages live under /mitarbeiter; employee API + Auswahllisten in English.
+      "^/(employees|contract-types|qualifications|system-accesses)(/.*)?(\\?.*)?$":
+        api,
     },
   },
 });
