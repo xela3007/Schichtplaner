@@ -37,8 +37,11 @@ describe("SchedulePage", () => {
       await screen.findAllByRole("region", { name: "Mo 16.11." })
     )[0] as HTMLElement;
     expect(within(monday).getByText("07:30–19:00 · Soll 2")).toBeTruthy();
-    expect(within(monday).getByText("Brandt, Ben")).toBeTruthy();
-    expect(within(monday).getByText("07:30–12:00")).toBeTruthy(); // partial shift
+    expect(
+      within(monday).getByRole("button", { name: "Brandt, Ben, 07:30–12:00" })
+        .textContent,
+    ).toContain("Ben B.");
+    // partial shift: the bar carries its own times (07:30–12:00, asserted above)
     expect(
       within(monday).getByText("Lücke 07:30–12:00 (1 fehlt)"),
     ).toBeTruthy();
@@ -124,8 +127,12 @@ describe("SchedulePage", () => {
       PERMS,
     );
     render();
+    // the bar opens its details; "Austeilen" lives there
     await userEvent.click(
-      await screen.findByRole("button", { name: "Müller, Anna austeilen" }),
+      await screen.findByRole("button", { name: "Müller, Anna, 08:00–15:00" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Müller, Anna austeilen" }),
     );
     expect(fetch.mock.calls.some(([, i]) => i?.method === "DELETE")).toBe(
       false,
@@ -136,6 +143,50 @@ describe("SchedulePage", () => {
         true,
       ),
     );
+  });
+
+  it("draws overlapping assignments side by side and hatches gaps", async () => {
+    mockApi(
+      {
+        [`GET /schedule/week?start=${f.MON}`]: json(
+          200,
+          f.week({
+            assignments: [
+              f.asg({ date: "2026-11-17", start: "07:30", end: "12:00" }),
+              f.asg({
+                id: "01a1bb3f-0000-7000-8000-000000000072",
+                employeeId: f.BEN,
+                date: "2026-11-17",
+                start: "10:00",
+                end: "19:00",
+              }),
+            ],
+          }),
+        ),
+      },
+      PERMS,
+    );
+    render();
+    const anna = await screen.findByRole("button", {
+      name: "Müller, Anna, 07:30–12:00",
+    });
+    const ben = screen.getByRole("button", {
+      name: "Brandt, Ben, 10:00–19:00",
+    });
+    // two lanes: each bar takes half the width, in different lanes
+    expect(anna.style.width).toContain("50%");
+    expect(ben.style.width).toBe(anna.style.width);
+    expect(anna.style.left).not.toBe(ben.style.left);
+    // Tue needs 1: 10:00–12:00 is overstaffed, nothing missing
+    const tuesday = (
+      await screen.findAllByRole("region", { name: "Di 17.11." })
+    )[0] as HTMLElement;
+    expect(within(tuesday).queryByText(/^fehlt/)).toBeNull();
+    // Mon needs 2 and has nobody → hatched gap "fehlt 2"
+    const monday = screen.getAllByRole("region", {
+      name: "Mo 16.11.",
+    })[0] as HTMLElement;
+    expect(within(monday).getByText("fehlt 2")).toBeTruthy();
   });
 
   it("is refused without schedule.manage", async () => {

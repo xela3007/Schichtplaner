@@ -21,14 +21,24 @@ const NAV: { to: string; label: string; anyOf?: string[] }[] = [
 ];
 
 /** App frame: sticky translucent header with the official Dinexis wordmark. */
-export function PageShell({ children }: { children: ReactNode }) {
+export function PageShell({
+  children,
+  wide = false,
+}: {
+  children: ReactNode;
+  /** Wider content for the week grid of the schedule. */
+  wide?: boolean;
+}) {
+  const width = wide ? "max-w-[96rem]" : "max-w-5xl";
   const { status } = useAuth();
   const permissions = useMe().data?.permissions ?? [];
   return (
     <div className="min-h-svh bg-background">
       <header className="sticky top-0 z-10 border-b border-border bg-background/85 backdrop-blur">
         {/* Wraps the nav into a second row on narrow phones instead of overlapping. */}
-        <div className="mx-auto flex min-h-16 max-w-5xl flex-wrap items-center gap-x-6 gap-y-1 px-[clamp(16px,4vw,40px)] py-2">
+        <div
+          className={`mx-auto flex min-h-16 ${width} flex-wrap items-center gap-x-6 gap-y-1 px-[clamp(16px,4vw,40px)] py-2`}
+        >
           <Link
             to="/"
             className="flex items-center gap-3 rounded-sm"
@@ -71,7 +81,9 @@ export function PageShell({ children }: { children: ReactNode }) {
           )}
         </div>
       </header>
-      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-[clamp(16px,4vw,40px)] py-10">
+      <main
+        className={`mx-auto flex ${width} flex-col gap-6 px-[clamp(16px,4vw,40px)] py-10`}
+      >
         {children}
       </main>
     </div>

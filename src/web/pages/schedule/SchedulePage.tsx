@@ -21,6 +21,7 @@ import {
   isOutdated,
   type ScheduleLocation,
   ScheduleWeek,
+  toMin,
   weekPlan,
 } from "#shared/schedule.js";
 import { PageShell } from "@/components/PageShell";
@@ -36,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { AssignDialog, type Shift } from "./AssignDialog";
 import { ScheduleHistory } from "./ScheduleHistory";
 import { ResetCancelled, ShiftEditor } from "./ShiftEditor";
+import { employeeColor, layoutLanes, timeRange } from "./timeline";
 
 const SHORT: Record<Weekday, string> = {
   mon: "Mo",
@@ -65,39 +67,77 @@ function useIsDesktop() {
   return desktop;
 }
 
-function AssignmentRow({
+/** Notes in words for one assignment (ADR-011: never colour only). */
+function notesFor(
+  a: Assignment,
+  week: ScheduleWeek,
+  location: ScheduleLocation,
+): string[] {
+  const employee = week.employees.find((e) => e.id === a.employeeId);
+  const notes: string[] = [];
+  if (employee && !employee.active) notes.push("ausgeschieden");
+  if (isOutdated(a, location, week.overrides)) notes.push("passt nicht mehr");
+  // conflicts that appeared after the assignment (absence, rule, block, overlap)
+  if (employee)
+    for (const c of evaluateCandidate(
+      {
+        today: "0000-01-01",
+        employee,
+        locationId: a.locationId,
+        locationNames: Object.fromEntries(
+          week.locations.map((l) => [l.id, l.name]),
+        ),
+        absences: week.absences,
+        rules: week.rules,
+        assignments: week.assignments.filter((x) => x.id !== a.id),
+      },
+      a,
+    ).blocks)
+      notes.push(`Konflikt: ${c.message}`);
+  return notes;
+}
+
+/** "Ben B." — short label for narrow bars; the full name is in title and aria. */
+const shortName = (a: Assignment, week: ScheduleWeek) => {
+  const e = week.employees.find((x) => x.id === a.employeeId);
+  return e ? `${e.firstName} ${e.lastName.slice(0, 1)}.` : "unbekannt";
+};
+
+const nameOf = (a: Assignment, week: ScheduleWeek) => {
+  const e = week.employees.find((x) => x.id === a.employeeId);
+  return e ? `${e.lastName}, ${e.firstName}` : "unbekannt";
+};
+
+function NotePills({ notes }: { notes: string[] }) {
+  return notes.map((n) => (
+    <Pill
+      key={n}
+      variant={n.startsWith("Konflikt") ? "accent" : undefined}
+      className={n === "passt nicht mehr" ? "border-dashed" : undefined}
+    >
+      {n}
+    </Pill>
+  ));
+}
+
+/** Details of the clicked bar: name, times, notes and "Austeilen". */
+function AssignmentDetail({
   a,
   week,
-  location,
+  notes,
   editable,
+  onClose,
 }: {
   a: Assignment;
   week: ScheduleWeek;
-  location: ScheduleLocation;
+  notes: string[];
   editable: boolean;
+  onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const employee = week.employees.find((e) => e.id === a.employeeId);
-  const partial = a.start !== a.shiftStart || a.end !== a.shiftEnd;
-  // conflicts that appeared after the assignment (absence, rule, block, overlap)
-  const conflicts = employee
-    ? evaluateCandidate(
-        {
-          today: "0000-01-01",
-          employee,
-          locationId: a.locationId,
-          locationNames: Object.fromEntries(
-            week.locations.map((l) => [l.id, l.name]),
-          ),
-          absences: week.absences,
-          rules: week.rules,
-          assignments: week.assignments.filter((x) => x.id !== a.id),
-        },
-        a,
-      ).blocks
-    : [];
+  const name = nameOf(a, week);
   async function remove() {
     setError(null);
     try {
@@ -105,6 +145,7 @@ function AssignmentRow({
         method: "DELETE",
         auth: true,
       });
+      onClose();
     } catch (e) {
       setError(
         e instanceof ApiError && e.code === "version_conflict"
@@ -116,43 +157,38 @@ function AssignmentRow({
     void queryClient.invalidateQueries({ queryKey: ["schedule-week"] });
     void queryClient.invalidateQueries({ queryKey: ["schedule-history"] });
   }
-  const name = employee
-    ? `${employee.lastName}, ${employee.firstName}`
-    : "unbekannt";
   return (
-    <li className="grid gap-1">
+    <div className="grid gap-1 rounded-md border bg-surface-inset p-1.5 text-caption">
       <span className="flex flex-wrap items-center gap-1.5">
-        <span className={cn(employee && !employee.active && "line-through")}>
-          {name}
+        <span className="font-medium">{name}</span>
+        <span className="tabular-nums text-ink-2">
+          {a.start}–{a.end}
         </span>
-        {partial && (
-          <span className="text-caption tabular-nums text-muted-foreground">
-            {a.start}–{a.end}
-          </span>
-        )}
-        {employee && !employee.active && <Pill>ausgeschieden</Pill>}
-        {isOutdated(a, location, week.overrides) && (
-          <Pill className="border-dashed">passt nicht mehr</Pill>
-        )}
-        {conflicts.map((c) => (
-          <Pill key={c.message} variant="accent">
-            Konflikt: {c.message}
-          </Pill>
-        ))}
-        {editable && !confirm && (
+        <NotePills notes={notes} />
+      </span>
+      {editable && !confirm && (
+        <span className="flex flex-wrap gap-1.5">
           <Button
             size="sm"
-            variant="ghost"
-            className="h-6 px-1.5"
+            variant="outline"
+            className="h-6 px-2"
             onClick={() => setConfirm(true)}
             aria-label={`${name} austeilen`}
           >
-            ✕
+            Austeilen
           </Button>
-        )}
-      </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2"
+            onClick={onClose}
+          >
+            Schließen
+          </Button>
+        </span>
+      )}
       {confirm && (
-        <span className="flex flex-wrap items-center gap-1.5 text-caption">
+        <span className="flex flex-wrap items-center gap-1.5">
           Austeilen?
           <Button
             size="sm"
@@ -172,8 +208,142 @@ function AssignmentRow({
           </Button>
         </span>
       )}
-      {error && <span className="text-caption text-destructive">{error}</span>}
-    </li>
+      {error && <span className="text-destructive">{error}</span>}
+    </div>
+  );
+}
+
+const HOUR = 40; // px per hour in the timeline
+const AXIS = "1.75rem"; // room for the hour labels
+
+/** Outlook-like day timeline: demand tint, hatched gaps, one bar per assignment. */
+function DayTimeline({
+  location,
+  date,
+  week,
+  here,
+  notes,
+  range,
+  selected,
+  onSelect,
+}: {
+  location: ScheduleLocation;
+  date: string;
+  week: ScheduleWeek;
+  here: Assignment[];
+  notes: Map<string, string[]>;
+  range: { from: number; to: number };
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const top = (t: string) => ((toMin(t) - range.from * 60) * HOUR) / 60;
+  const segments = coverageFor(location, date, here, week.overrides);
+  const lanes = layoutLanes(here);
+  const hours = Array.from(
+    { length: range.to - range.from + 1 },
+    (_, i) => range.from + i,
+  );
+  return (
+    <div
+      className="relative overflow-hidden rounded-sm border bg-surface"
+      style={{ height: (range.to - range.from) * HOUR }}
+      data-testid="timeline"
+    >
+      {segments
+        .filter((s) => s.required > 0)
+        .map((s) => (
+          <div
+            key={`${s.start}-${s.end}`}
+            aria-hidden
+            className={cn(
+              "absolute right-0",
+              s.status === "gap" ? "bg-destructive-100" : "bg-brand-050",
+            )}
+            style={{
+              left: AXIS,
+              top: top(s.start),
+              height: top(s.end) - top(s.start),
+              backgroundImage:
+                s.status === "gap"
+                  ? "repeating-linear-gradient(135deg, transparent 0 6px, rgba(200,71,47,.18) 6px 8px)"
+                  : undefined,
+            }}
+          ></div>
+        ))}
+      {hours.map((h) => (
+        <div
+          key={h}
+          aria-hidden
+          className="pointer-events-none absolute right-0 left-0 border-t border-border"
+          style={{ top: (h - range.from) * HOUR }}
+        >
+          <span className="absolute left-0.5 top-0 text-[10px] leading-none text-ink-3 tabular-nums">
+            {String(h).padStart(2, "0")}
+          </span>
+        </div>
+      ))}
+      {here.map((a) => {
+        const { lane, lanes: n } = lanes.get(a) ?? { lane: 0, lanes: 1 };
+        const color = employeeColor(a.employeeId);
+        const name = nameOf(a, week);
+        const own = notes.get(a.id) ?? [];
+        const employee = week.employees.find((e) => e.id === a.employeeId);
+        const height = Math.max(top(a.end) - top(a.start), 22);
+        return (
+          <button
+            key={a.id}
+            type="button"
+            title={`${name}, ${a.start}–${a.end}${own.length ? ` · ${own.join(" · ")}` : ""}`}
+            aria-label={`${name}, ${a.start}–${a.end}${own.length ? ` (${own.join(", ")})` : ""}`}
+            aria-pressed={selected === a.id}
+            onClick={() => onSelect(selected === a.id ? null : a.id)}
+            className={cn(
+              "absolute overflow-hidden rounded-xs border border-l-4 px-1 py-0.5 text-left text-[11px] leading-tight text-ink shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              own.length > 0 && "border-dashed",
+              selected === a.id && "ring-2 ring-ink",
+            )}
+            style={{
+              top: top(a.start),
+              height,
+              left: `calc(${AXIS} + (100% - ${AXIS}) * ${lane / n})`,
+              width: `calc((100% - ${AXIS}) / ${n} - 2px)`,
+              background: color.bg,
+              borderColor: own.length > 0 ? "var(--danger)" : color.border,
+              borderLeftColor: color.border,
+            }}
+          >
+            <span
+              className={cn(
+                "block truncate font-medium",
+                employee && !employee.active && "line-through",
+              )}
+            >
+              {own.length > 0 && "! "}
+              {shortName(a, week)}
+            </span>
+            {height >= 34 && (
+              <span className="block tabular-nums text-ink-2">
+                {/* may wrap after the dash in narrow lanes */}
+                {a.start}–{"\u200B"}
+                {a.end}
+              </span>
+            )}
+          </button>
+        );
+      })}
+      {/* gap labels above the bars, so a bar never hides what is missing */}
+      {segments
+        .filter((s) => s.status === "gap")
+        .map((s) => (
+          <span
+            key={`gap-${s.start}`}
+            className="pointer-events-none absolute right-1 z-10 rounded-xs bg-surface/90 px-0.5 text-[11px] font-medium leading-tight text-destructive"
+            style={{ top: Math.max(top(s.end) - 15, top(s.start)) }}
+          >
+            fehlt {s.required - s.assigned}
+          </span>
+        ))}
+    </div>
   );
 }
 
@@ -181,12 +351,14 @@ function DayCell({
   location,
   date,
   week,
+  range,
   editableWeek,
   onAssign,
 }: {
   location: ScheduleLocation;
   date: string;
   week: ScheduleWeek;
+  range: { from: number; to: number };
   editableWeek: boolean;
   onAssign: (shift: Shift) => void;
 }) {
@@ -195,182 +367,185 @@ function DayCell({
   const editable = editableWeek && !past;
   const open = location.openingHours.some((o) => o.weekday === day);
   const [editing, setEditing] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const { shifts, cancelled } = effectiveShifts(location, date, week.overrides);
   const here = week.assignments.filter(
     (a) => a.locationId === location.id && a.date === date,
   );
-  const inShift = (w: { start: string; end: string }) =>
-    here.filter((a) => a.shiftStart === w.start && a.shiftEnd === w.end);
-  const orphans = here.filter(
-    (a) =>
-      !shifts.some((w) => w.start === a.shiftStart && w.end === a.shiftEnd),
-  );
+  const notes = new Map(here.map((a) => [a.id, notesFor(a, week, location)]));
+  const flagged = here.filter((a) => (notes.get(a.id) ?? []).length > 0);
+  const chosen = here.find((a) => a.id === selected);
   const cov = coverageText(coverageFor(location, date, here, week.overrides));
+  const dayLabel = `${SHORT[day]} ${formatDate(date, false)}`;
   return (
     <section
-      aria-label={`${SHORT[day]} ${formatDate(date, false)}`}
+      aria-label={dayLabel}
       className={cn(
-        "grid content-start gap-2 rounded-md border p-2 text-sm",
+        "grid content-start gap-2 rounded-md border p-2 text-sm md:row-span-3 md:grid-rows-subgrid",
         past && "bg-paper-2",
         date === week.today && "border-brand-700",
       )}
     >
-      <h3 className="flex flex-wrap items-baseline justify-between gap-1 font-medium">
-        <span>
-          {SHORT[day]} {formatDate(date, false)}
-        </span>
-        {date === week.today && (
-          <span className="text-caption text-brand-700">heute</span>
-        )}
-        {past && (
-          <span className="text-caption text-muted-foreground">
-            abgeschlossen
-          </span>
-        )}
-      </h3>
-      {shifts.length === 0 && cancelled.length === 0 && here.length === 0 && (
-        <p className="text-muted-foreground">
-          {open ? "kein Bedarf" : "geschlossen"}
-        </p>
-      )}
-      {shifts.map((w) => {
-        const key = `${w.start}-${w.end}`;
-        const label = `${SHORT[day]} ${formatDate(date, false)} ${w.start}–${w.end}`;
-        return (
-          <div
-            key={key}
-            className="grid gap-1 border-t pt-1.5 first-of-type:border-0 first-of-type:pt-0"
-          >
-            <span className="flex flex-wrap items-center gap-1 text-caption tabular-nums text-ink-2">
-              {w.start}–{w.end} · Soll {w.people}
-              {w.source === "added" && <Pill variant="brand">zusätzlich</Pill>}
-              {w.source === "changed" && w.base && (
-                <Pill variant="brand">
-                  angepasst (normal {w.base.start}–{w.base.end})
-                </Pill>
-              )}
-              {editable && editing !== key && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 px-1.5"
-                  onClick={() => setEditing(key)}
-                  aria-label={`${label} anpassen`}
-                >
-                  anpassen
-                </Button>
-              )}
+      <div className="grid content-start gap-1.5">
+        <h3 className="flex flex-wrap items-baseline justify-between gap-1 font-medium">
+          <span>{dayLabel}</span>
+          {date === week.today && (
+            <span className="text-caption text-brand-700">heute</span>
+          )}
+          {past && (
+            <span className="text-caption text-muted-foreground">
+              abgeschlossen
             </span>
-            {editing === key && (
-              <ShiftEditor
-                location={location}
-                date={date}
-                shift={w}
-                onDone={() => setEditing(null)}
+          )}
+        </h3>
+        {shifts.length === 0 && cancelled.length === 0 && here.length === 0 && (
+          <p className="text-muted-foreground">
+            {open ? "kein Bedarf" : "geschlossen"}
+          </p>
+        )}
+        {shifts.map((w) => {
+          const key = `${w.start}-${w.end}`;
+          const label = `${dayLabel} ${w.start}–${w.end}`;
+          return (
+            <div key={key} className="grid gap-1">
+              <span className="flex flex-wrap items-center gap-1 text-caption tabular-nums text-ink-2">
+                {w.start}–{w.end} · Soll {w.people}
+                {w.source === "added" && (
+                  <Pill variant="brand">zusätzlich</Pill>
+                )}
+                {w.source === "changed" && w.base && (
+                  <Pill variant="brand">
+                    angepasst (normal {w.base.start}–{w.base.end})
+                  </Pill>
+                )}
+              </span>
+              {editable && editing !== key && (
+                <span className="flex flex-wrap gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2"
+                    onClick={() =>
+                      onAssign({ location, date, start: w.start, end: w.end })
+                    }
+                    aria-label={`${label} einteilen`}
+                  >
+                    + einteilen
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1.5"
+                    onClick={() => setEditing(key)}
+                    aria-label={`${label} anpassen`}
+                  >
+                    anpassen
+                  </Button>
+                </span>
+              )}
+              {editing === key && (
+                <ShiftEditor
+                  location={location}
+                  date={date}
+                  shift={w}
+                  onDone={() => setEditing(null)}
+                />
+              )}
+            </div>
+          );
+        })}
+        {cancelled.map((c) => (
+          <div
+            key={c.override.id}
+            className="flex flex-wrap items-center gap-1 text-caption"
+          >
+            <span className="tabular-nums text-ink-2 line-through">
+              {c.base.start}–{c.base.end}
+            </span>
+            <Pill>entfällt</Pill>
+            {editable && (
+              <ResetCancelled
+                override={c.override}
+                label={`${dayLabel} ${c.base.start}–${c.base.end}`}
               />
             )}
-            <ul className="grid gap-1">
-              {inShift(w).map((a) => (
-                <AssignmentRow
-                  key={a.id}
-                  a={a}
-                  week={week}
-                  location={location}
-                  editable={editable}
-                />
-              ))}
-            </ul>
-            {editable && (
-              <div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2"
-                  onClick={() =>
-                    onAssign({ location, date, start: w.start, end: w.end })
-                  }
-                  aria-label={`${label} einteilen`}
-                >
-                  + einteilen
-                </Button>
-              </div>
-            )}
           </div>
-        );
-      })}
-      {cancelled.map((c) => (
-        <div
-          key={c.override.id}
-          className="flex flex-wrap items-center gap-1 border-t pt-1.5 text-caption"
-        >
-          <span className="tabular-nums text-ink-2 line-through">
-            {c.base.start}–{c.base.end}
-          </span>
-          <Pill>entfällt</Pill>
-          {editable && (
-            <ResetCancelled
-              override={c.override}
-              label={`${SHORT[day]} ${formatDate(date, false)} ${c.base.start}–${c.base.end}`}
-            />
-          )}
-        </div>
-      ))}
-      {editable && (
-        <div className="border-t pt-1.5">
-          {editing === "new" ? (
+        ))}
+        {editable &&
+          (editing === "new" ? (
             <ShiftEditor
               location={location}
               date={date}
               onDone={() => setEditing(null)}
             />
           ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2"
-              onClick={() => setEditing("new")}
-              aria-label={`${SHORT[day]} ${formatDate(date, false)} Schicht hinzufügen`}
-            >
-              + Schicht
-            </Button>
-          )}
-        </div>
-      )}
-      {orphans.length > 0 && (
-        <div className="grid gap-1 border-t pt-1.5">
-          <span className="text-caption text-ink-2">Weitere Einteilungen</span>
-          <ul className="grid gap-1">
-            {orphans.map((a) => (
-              <AssignmentRow
-                key={a.id}
-                a={a}
-                week={week}
-                location={location}
-                editable={editable}
-              />
-            ))}
-          </ul>
-        </div>
-      )}
-      {cov.status !== "none" && (
-        <div className="grid gap-0.5 border-t pt-1.5">
-          {cov.lines.map((line) => (
-            <Status
-              key={line}
-              tone={
-                cov.status === "covered"
-                  ? "ok"
-                  : cov.status === "gap"
-                    ? "error"
-                    : "warn"
-              }
-              className="text-caption"
-            >
-              {line}
-            </Status>
+            <div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-1.5"
+                onClick={() => setEditing("new")}
+                aria-label={`${dayLabel} Schicht hinzufügen`}
+              >
+                + Schicht
+              </Button>
+            </div>
           ))}
-        </div>
-      )}
+      </div>
+      <DayTimeline
+        location={location}
+        date={date}
+        week={week}
+        here={here}
+        notes={notes}
+        range={range}
+        selected={selected}
+        onSelect={setSelected}
+      />
+      <div className="grid content-start gap-1.5">
+        {chosen && (
+          <AssignmentDetail
+            key={chosen.id}
+            a={chosen}
+            week={week}
+            notes={notes.get(chosen.id) ?? []}
+            editable={editable}
+            onClose={() => setSelected(null)}
+          />
+        )}
+        {cov.status !== "none" && (
+          <div className="grid gap-0.5">
+            {cov.lines.map((line) => (
+              <Status
+                key={line}
+                tone={
+                  cov.status === "covered"
+                    ? "ok"
+                    : cov.status === "gap"
+                      ? "error"
+                      : "warn"
+                }
+                className="text-caption"
+              >
+                {line}
+              </Status>
+            ))}
+          </div>
+        )}
+        {flagged.length > 0 && (
+          <div className="grid gap-1">
+            <span className="text-caption text-ink-2">Hinweise</span>
+            <ul className="grid gap-1 text-caption">
+              {flagged.map((a) => (
+                <li key={a.id} className="flex flex-wrap items-center gap-1">
+                  <span>{nameOf(a, week)}</span>
+                  <NotePills notes={notes.get(a.id) ?? []} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -488,7 +663,7 @@ export function SchedulePage() {
   const week = query.data;
 
   return (
-    <PageShell>
+    <PageShell wide>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-heading text-h3 font-bold">Schichtplan</h1>
@@ -595,6 +770,14 @@ export function SchedulePage() {
                   location={location}
                   date={d}
                   week={week}
+                  range={timeRange(
+                    location,
+                    days,
+                    week.assignments.filter(
+                      (a) => a.locationId === location.id,
+                    ),
+                    week.overrides,
+                  )}
                   editableWeek={desktop}
                   onAssign={setShift}
                 />
