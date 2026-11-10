@@ -412,6 +412,8 @@ export const shiftAssignments = pgTable(
     endTime: text("end_time").notNull(),
     shiftStart: text("shift_start").notNull(),
     shiftEnd: text("shift_end").notNull(),
+    /** Set when the row was created by a week copy (Teil 3); undo removes these. */
+    copyId: uuid("copy_id").references((): AnyPgColumn => scheduleCopies.id),
     version: integer("version").notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id, {
       onDelete: "set null",
@@ -421,6 +423,7 @@ export const shiftAssignments = pgTable(
   (t) => [
     index("shift_assignments_date_location_idx").on(t.date, t.locationId),
     index("shift_assignments_employee_date_idx").on(t.employeeId, t.date),
+    index("shift_assignments_copy_idx").on(t.copyId),
     check(
       "shift_assignments_time_check",
       sql`${t.startTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${t.endTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${t.startTime} < ${t.endTime}`,
@@ -471,4 +474,27 @@ export const shiftOverrides = pgTable(
       sql`(${t.startTime} is null or ${t.startTime} < ${t.endTime}) and (${t.baseStart} is null or ${t.baseStart} < ${t.baseEnd}) and (${t.people} is null or ${t.people} between 1 and 20)`,
     ),
   ],
+);
+
+// --- Schichtplan Teil 3: week copies (template week → up to 4 target weeks) -------
+// One row per copy; its assignments carry copy_id so the copy can be undone as a whole.
+export const scheduleCopies = pgTable(
+  "schedule_copies",
+  {
+    id: id(),
+    sourceStart: date("source_start", { mode: "string" }).notNull(),
+    targetStarts: jsonb("target_starts").$type<string[]>().notNull(),
+    locationIds: jsonb("location_ids").$type<string[]>().notNull(),
+    copied: integer("copied").notNull(),
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+    undoneBy: uuid("undone_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps,
+  },
+  (t) => [index("schedule_copies_created_idx").on(t.createdAt.desc())],
 );

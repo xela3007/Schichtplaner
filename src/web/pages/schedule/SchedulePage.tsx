@@ -35,6 +35,8 @@ import { useCan } from "@/lib/permissions";
 import { todayInBerlin } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { AssignDialog, type Shift } from "./AssignDialog";
+import { CopyList } from "./CopyList";
+import { CopyWeekDialog } from "./CopyWeekDialog";
 import { ScheduleHistory } from "./ScheduleHistory";
 import { ResetCancelled, ShiftEditor } from "./ShiftEditor";
 import { employeeColor, layoutLanes, timeRange } from "./timeline";
@@ -634,6 +636,7 @@ export function SchedulePage() {
   const start = mondayOf(requested.success ? requested.data : today);
   const days = weekDays(start);
   const [shift, setShift] = useState<Shift | null>(null);
+  const [copying, setCopying] = useState(false);
 
   const query = useQuery({
     queryKey: ["schedule-week", start],
@@ -673,6 +676,11 @@ export function SchedulePage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {desktop && week && week.locations.length > 0 && (
+            <Button size="sm" onClick={() => setCopying(true)}>
+              Woche übernehmen
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -788,7 +796,17 @@ export function SchedulePage() {
         </Card>
       ))}
 
+      {week && week.locations.length > 0 && (
+        <Card>
+          <CardContent className="pt-4">
+            <CopyList week={week} editable={desktop} />
+          </CardContent>
+        </Card>
+      )}
       {week && <HoursTable week={week} />}
+      {week && copying && (
+        <CopyWeekDialog week={week} onClose={() => setCopying(false)} />
+      )}
       {week && shift && (
         <AssignDialog
           week={week}

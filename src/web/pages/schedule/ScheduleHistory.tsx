@@ -21,6 +21,8 @@ const REASONS: Record<string, string> = {
   employee_deactivated: "Mitarbeiter deaktiviert",
   location_deactivated: "Standort deaktiviert",
   shift_changed: "Schicht geändert",
+  week_copied: "Woche übernommen",
+  copy_undone: "Übernahme zurückgenommen",
 };
 type Snap = {
   date: string;

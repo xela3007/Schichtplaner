@@ -652,3 +652,215 @@ export const DeactivateBody = z.object({
   /** Remove assignments from tomorrow on and deactivate in one step. */
   removeAssignments: z.boolean().optional(),
 });
+
+// --- Teil 3: copy a template week into up to 4 target weeks -----------------------
+const isMonday = (d: string) => weekdayOf(d) === "mon";
+export const MAX_COPY_TARGETS = 4;
+
+export const CopyInput = z
+  .object({
+    sourceStart: IsoDate.refine(isMonday, "Die Woche muss am Montag beginnen."),
+    targetStarts: z
+      .array(IsoDate.refine(isMonday, "Die Woche muss am Montag beginnen."))
+      .min(1, "Bitte mindestens eine Zielwoche wählen.")
+      .max(MAX_COPY_TARGETS, `Höchstens ${MAX_COPY_TARGETS} Zielwochen.`),
+    locationIds: z
+      .array(z.uuid())
+      .min(1, "Bitte mindestens einen Standort wählen."),
+  })
+  .refine((v) => new Set(v.targetStarts).size === v.targetStarts.length, {
+    path: ["targetStarts"],
+    error: "Jede Zielwoche nur einmal.",
+  })
+  .refine((v) => !v.targetStarts.includes(v.sourceStart), {
+    path: ["targetStarts"],
+    error: "Die Quellwoche kann nicht Zielwoche sein.",
+  });
+export type CopyInput = z.infer<typeof CopyInput>;
+
+export const COPY_SKIP_REASONS = [
+  "absence",
+  "rule",
+  "location_blocked",
+  "overlap",
+  "inactive",
+  "no_shift",
+  "full",
+] as const;
+export const CopySkip = z.object({
+  employeeId: z.uuid(),
+  employeeName: z.string(),
+  locationId: z.uuid(),
+  locationName: z.string(),
+  date: IsoDate,
+  start: TimeOfDay,
+  end: TimeOfDay,
+  reason: z.enum(COPY_SKIP_REASONS),
+  message: z.string(),
+});
+export type CopySkip = z.infer<typeof CopySkip>;
+
+export const ScheduleCopy = z.object({
+  id: z.uuid(),
+  sourceStart: IsoDate,
+  targetStarts: z.array(IsoDate),
+  locationIds: z.array(z.uuid()),
+  copied: z.number().int(),
+  remaining: z.number().int(),
+  actorEmail: z.string().nullable(),
+  createdAt: z.iso.datetime({ offset: true }),
+  undoneAt: z.iso.datetime({ offset: true }).nullable(),
+  version: Version,
+});
+export type ScheduleCopy = z.infer<typeof ScheduleCopy>;
+
+export const CopyResult = z.object({
+  copy: ScheduleCopy.nullable(),
+  copied: z.number().int(),
+  alreadyPresent: z.number().int(),
+  skipped: z.array(CopySkip),
+});
+export type CopyResult = z.infer<typeof CopyResult>;
+
+export type CopyPlan = {
+  create: AssignInput[];
+  alreadyPresent: number;
+  skipped: CopySkip[];
+};
+
+/**
+ * Pure plan of a week copy (story 4456a836). Walks the source assignments of
+ * the chosen locations by date/start and maps each to the same weekday of every
+ * target week. Hard blocks, missing and full shifts are skipped and listed;
+ * soft warnings never stop it. Planned assignments count for the next checks.
+ */
+export function planCopy(p: {
+  source: ScheduleWeek;
+  targets: readonly ScheduleWeek[];
+  locationIds: readonly string[];
+  today: string;
+}): CopyPlan {
+  const create: AssignInput[] = [];
+  const skipped: CopySkip[] = [];
+  let alreadyPresent = 0;
+  const sourceAsg = p.source.assignments
+    .filter((a) => p.locationIds.includes(a.locationId))
+    .sort(
+      (a, b) =>
+        a.date.localeCompare(b.date) ||
+        a.start.localeCompare(b.start) ||
+        a.end.localeCompare(b.end),
+    );
+  const sourceName = (id: string) => {
+    const e = p.source.employees.find((x) => x.id === id);
+    return e ? `${e.lastName}, ${e.firstName}` : "unbekannt";
+  };
+  for (const target of p.targets) {
+    // working copy: planned assignments become visible to the following checks
+    const planned: Assignment[] = [...target.assignments];
+    const locationNames = Object.fromEntries(
+      target.locations.map((l) => [l.id, l.name]),
+    );
+    for (const src of sourceAsg) {
+      const offset = Math.round(
+        (Date.parse(src.date) - Date.parse(p.source.start)) / 86_400_000,
+      );
+      const date = addDays(target.start, offset);
+      if (date < p.today) continue;
+      const cand = {
+        locationId: src.locationId,
+        employeeId: src.employeeId,
+        date,
+        start: src.start,
+        end: src.end,
+        shiftStart: src.shiftStart,
+        shiftEnd: src.shiftEnd,
+      };
+      const location = target.locations.find((l) => l.id === src.locationId);
+      const skip = (reason: CopySkip["reason"], message: string) =>
+        skipped.push({
+          employeeId: src.employeeId,
+          employeeName: sourceName(src.employeeId),
+          locationId: src.locationId,
+          locationName:
+            location?.name ??
+            p.source.locations.find((l) => l.id === src.locationId)?.name ??
+            "unbekannt",
+          date,
+          start: src.start,
+          end: src.end,
+          reason,
+          message,
+        });
+      if (
+        planned.some(
+          (a) =>
+            a.employeeId === cand.employeeId &&
+            a.locationId === cand.locationId &&
+            a.date === date &&
+            a.start === cand.start &&
+            a.end === cand.end,
+        )
+      ) {
+        alreadyPresent++;
+        continue;
+      }
+      const employee = target.employees.find((e) => e.id === src.employeeId);
+      if (!employee?.active) {
+        skip("inactive", "nicht mehr aktiv");
+        continue;
+      }
+      if (!location) {
+        skip("no_shift", "Standort nicht aktiv");
+        continue;
+      }
+      const shift = effectiveShifts(
+        location,
+        date,
+        target.overrides,
+      ).shifts.find(
+        (s) => s.start === cand.shiftStart && s.end === cand.shiftEnd,
+      );
+      if (!shift || !assignmentWindowOk(location, target.overrides, cand)) {
+        skip("no_shift", "Schicht gibt es an dem Tag nicht");
+        continue;
+      }
+      const anchored = planned.filter(
+        (a) =>
+          a.locationId === location.id &&
+          a.date === date &&
+          a.shiftStart === shift.start &&
+          a.shiftEnd === shift.end,
+      ).length;
+      if (anchored >= shift.people) {
+        skip("full", `Schicht schon voll (${anchored} / ${shift.people})`);
+        continue;
+      }
+      const { blocks } = evaluateCandidate(
+        {
+          today: p.today,
+          employee,
+          locationId: location.id,
+          locationNames,
+          absences: target.absences,
+          rules: target.rules,
+          assignments: planned,
+        },
+        cand,
+      );
+      const block = blocks.find((b) => b.code !== "past");
+      if (block) {
+        skip(block.code as CopySkip["reason"], block.message);
+        continue;
+      }
+      create.push(cand);
+      planned.push({
+        ...cand,
+        id: `00000000-0000-7000-8000-${String(create.length).padStart(12, "0")}`,
+        version: 1,
+        updatedAt: new Date(0).toISOString(),
+      });
+    }
+  }
+  return { create, alreadyPresent, skipped };
+}

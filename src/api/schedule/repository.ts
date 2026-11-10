@@ -11,6 +11,7 @@ import {
   employees,
   locationStaffing,
   locations,
+  scheduleCopies,
   shiftAssignments,
   shiftOverrides,
   users,
@@ -19,6 +20,8 @@ import type { AuditEntry } from "#shared/locations.js";
 import type {
   AssignInput,
   Assignment,
+  CopyInput,
+  ScheduleCopy,
   ScheduleWeek,
   ShiftOverride,
 } from "#shared/schedule.js";
@@ -72,6 +75,13 @@ export type OverrideResult =
   | { kind: "already_overridden" };
 
 export type Target = { employeeId: string } | { locationId: string };
+export type CreateCopyResult =
+  | { kind: "ok"; copy: ScheduleCopy }
+  | { kind: "overlap" };
+export type UndoCopyResult =
+  | { kind: "ok"; removed: number; copy: ScheduleCopy }
+  | { kind: "conflict"; current: ScheduleCopy }
+  | { kind: "not_found" };
 
 export interface ScheduleRepository {
   week(start: string, today: string): Promise<ScheduleWeek>;
@@ -90,6 +100,23 @@ export interface ScheduleRepository {
   ): Promise<DeactivateResult>;
   getOverride(id: string): Promise<ShiftOverride | null>;
   writeOverride(write: OverrideWrite, actorId: string): Promise<OverrideResult>;
+  /** ONE statement: copy row + all assignments (with copy_id) + their audit rows (Teil 3). */
+  createCopy(
+    meta: CopyInput,
+    inputs: AssignInput[],
+    actorId: string,
+    today: string,
+  ): Promise<CreateCopyResult>;
+  /** Latest 20 copies; `remaining` = assignments of the copy from today on. */
+  listCopies(today: string): Promise<ScheduleCopy[]>;
+  getCopy(id: string, today: string): Promise<ScheduleCopy | null>;
+  /** ONE statement: mark undone (version-checked), remove its assignments from today on, audit them. */
+  undoCopy(
+    id: string,
+    version: number,
+    today: string,
+    actorId: string,
+  ): Promise<UndoCopyResult>;
 }
 
 const COLS =
@@ -133,6 +160,22 @@ function isExclusionViolation(error: unknown) {
   const e = error as { code?: string; cause?: { code?: string } };
   return (e.code ?? e.cause?.code) === "23P01";
 }
+
+type RawCopy = Omit<ScheduleCopy, "createdAt" | "undoneAt"> & {
+  createdAt: string | Date;
+  undoneAt: string | Date | null;
+};
+const toCopy = (r: RawCopy): ScheduleCopy => ({
+  ...r,
+  createdAt: iso(r.createdAt),
+  undoneAt: r.undoneAt ? iso(r.undoneAt) : null,
+});
+const copyCols = (
+  today: string,
+) => sql`c.id, c.source_start::text as "sourceStart", c.target_starts as "targetStarts",
+  c.location_ids as "locationIds", c.copied, c.version, c.created_at as "createdAt", c.undone_at as "undoneAt",
+  u.email as "actorEmail",
+  (select count(*)::int from ${shiftAssignments} s where s.copy_id = c.id and s.date >= ${today}::date) as remaining`;
 
 export class DrizzleScheduleRepository implements ScheduleRepository {
   constructor(private readonly db: Db) {}
@@ -411,5 +454,116 @@ export class DrizzleScheduleRepository implements ScheduleRepository {
       if (isUnique(error)) return { kind: "already_overridden" };
       throw error;
     }
+  }
+
+  async createCopy(
+    meta: CopyInput,
+    inputs: AssignInput[],
+    actorId: string,
+    today: string,
+  ): Promise<CreateCopyResult> {
+    const copyId = uuidv7();
+    // IDs for assignments and audit rows come from the application (ADR-004).
+    const rows = JSON.stringify(
+      inputs.map((i) => ({
+        id: uuidv7(),
+        audit: uuidv7(),
+        location_id: i.locationId,
+        employee_id: i.employeeId,
+        date: i.date,
+        start_time: i.start,
+        end_time: i.end,
+        shift_start: i.shiftStart,
+        shift_end: i.shiftEnd,
+      })),
+    );
+    try {
+      await this.db.execute(sql`
+        with c as (
+          insert into ${scheduleCopies} (id, source_start, target_starts, location_ids, copied, created_by)
+          values (${copyId}, ${meta.sourceStart}::date, ${JSON.stringify(meta.targetStarts)}::jsonb,
+            ${JSON.stringify(meta.locationIds)}::jsonb, ${inputs.length}, ${actorId})
+          returning id
+        ), r as (
+          select * from jsonb_to_recordset(${rows}::jsonb) as x(id uuid, audit uuid, location_id uuid, employee_id uuid,
+            date date, start_time text, end_time text, shift_start text, shift_end text)
+        ), t as (
+          insert into ${shiftAssignments} (id, location_id, employee_id, date, start_time, end_time, shift_start, shift_end, created_by, copy_id)
+          select r.id, r.location_id, r.employee_id, r.date, r.start_time, r.end_time, r.shift_start, r.shift_end, ${actorId}::uuid, c.id
+          from r cross join c
+          returning id
+        ), a as (
+          insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+          select r.audit, ${ENTITY_TYPE}::text, r.location_id, 'assigned', ${actorId}::uuid,
+            jsonb_build_object('entry', jsonb_build_object('from', null, 'to', jsonb_build_object(
+              'date', r.date::text, 'employeeId', r.employee_id, 'start', r.start_time, 'end', r.end_time,
+              'shiftStart', r.shift_start, 'shiftEnd', r.shift_end)),
+              'reason', jsonb_build_object('from', null, 'to', 'week_copied'))
+          from r cross join c
+        )
+        select (select count(*)::int from t) as n`);
+    } catch (error) {
+      if (isExclusionViolation(error)) return { kind: "overlap" };
+      throw error;
+    }
+    const copy = await this.getCopy(copyId, today);
+    if (!copy) throw new Error("copy vanished after insert");
+    return { kind: "ok", copy };
+  }
+
+  async listCopies(today: string): Promise<ScheduleCopy[]> {
+    const r = await this.db.execute<RawCopy>(sql`
+      select ${copyCols(today)} from ${scheduleCopies} c left join ${users} u on u.id = c.created_by
+      order by c.created_at desc, c.id desc limit 20`);
+    return r.rows.map(toCopy);
+  }
+
+  async getCopy(id: string, today: string): Promise<ScheduleCopy | null> {
+    const r = await this.db.execute<RawCopy>(sql`
+      select ${copyCols(today)} from ${scheduleCopies} c left join ${users} u on u.id = c.created_by
+      where c.id = ${id}`);
+    return r.rows[0] ? toCopy(r.rows[0]) : null;
+  }
+
+  async undoCopy(
+    id: string,
+    version: number,
+    today: string,
+    actorId: string,
+  ): Promise<UndoCopyResult> {
+    // pair each affected assignment with an app-generated audit id (ADR-004)
+    const affected = await this.db.execute<{ id: string }>(
+      sql`select id from ${shiftAssignments} where copy_id = ${id} and date >= ${today}::date`,
+    );
+    const pairs = JSON.stringify(
+      affected.rows.map((r) => ({ a: r.id, audit: uuidv7() })),
+    );
+    const r = await this.db.execute<{ removed: number; updated: number }>(sql`
+      with t as (
+        update ${scheduleCopies} set undone_at = now(), undone_by = ${actorId}, version = version + 1, updated_at = now()
+        where id = ${id} and version = ${version} and undone_at is null
+        returning id
+      ), p as (
+        select (x->>'a')::uuid as assignment_id, (x->>'audit')::uuid as audit_id from jsonb_array_elements(${pairs}::jsonb) x
+      ), d as (
+        delete from ${shiftAssignments} s using p
+        where s.id = p.assignment_id and s.copy_id = ${id}::uuid and exists (select 1 from t)
+        returning p.audit_id, s.location_id, s.employee_id, s.date::text as date, s.start_time, s.end_time, s.shift_start, s.shift_end
+      ), a as (
+        insert into ${auditEvents} (id, entity_type, entity_id, action, actor_user_id, changes)
+        select d.audit_id, ${ENTITY_TYPE}::text, d.location_id, 'unassigned', ${actorId}::uuid,
+          jsonb_build_object('entry', jsonb_build_object('from', jsonb_build_object(
+            'date', d.date, 'employeeId', d.employee_id, 'start', d.start_time, 'end', d.end_time,
+            'shiftStart', d.shift_start, 'shiftEnd', d.shift_end), 'to', null),
+            'reason', jsonb_build_object('from', null, 'to', 'copy_undone'))
+        from d
+      )
+      select (select count(*)::int from d) as removed, (select count(*)::int from t) as updated`);
+    const row = r.rows[0];
+    const current = await this.getCopy(id, today);
+    if (!current) return { kind: "not_found" };
+    if (row && row.updated > 0)
+      return { kind: "ok", removed: row.removed, copy: current };
+    return { kind: "conflict", current };
   }
 }

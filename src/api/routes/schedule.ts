@@ -1,15 +1,18 @@
 import { type Context, Hono } from "hono";
-import { IsoDate, mondayOf } from "#shared/availability.js";
+import { addDays, IsoDate, mondayOf } from "#shared/availability.js";
+import { VersionOnly } from "#shared/locations.js";
 import {
   AssignInput,
   type Assignment,
   affectedAssignments,
   assignmentWindowOk,
+  CopyInput,
   DeactivateBody,
   effectiveShifts,
   evaluateCandidate,
   OverrideInput,
   OverrideUpdate,
+  planCopy,
   type ScheduleWeek,
   type ShiftOverride,
   todayInBerlin,
@@ -442,6 +445,103 @@ export function scheduleRoutes(
       confirmed,
       204,
     );
+  });
+
+  // --- Teil 3: copy a template week into up to 4 target weeks (story 4456a836) ---
+  app.post("/schedule/copies", async (c) => {
+    const parsed = await parseJson(c, CopyInput);
+    if ("response" in parsed) return parsed.response;
+    const input = parsed.data;
+    const now = today();
+    const invalid = (field: string, message: string) =>
+      c.json(
+        {
+          error: "validation_failed",
+          issues: [{ field, message }],
+          requestId: c.get("requestId"),
+        },
+        400,
+      );
+    if (input.targetStarts.some((t) => addDays(t, 6) < now))
+      return invalid(
+        "targetStarts",
+        "Zielwochen dürfen nicht in der Vergangenheit liegen.",
+      );
+    const source = await repo.week(input.sourceStart, now);
+    const known = new Set(source.locations.map((l) => l.id));
+    if (input.locationIds.some((id) => !known.has(id)))
+      return invalid("locationIds", "Unbekannter oder inaktiver Standort.");
+    const targets = await Promise.all(
+      [...input.targetStarts].sort().map((t) => repo.week(t, now)),
+    );
+    const plan = planCopy({
+      source,
+      targets,
+      locationIds: input.locationIds,
+      today: now,
+    });
+    let copy = null;
+    if (plan.create.length > 0) {
+      const result = await repo.createCopy(
+        input,
+        plan.create,
+        c.get("auth").userId,
+        now,
+      );
+      if (result.kind === "overlap")
+        return c.json(
+          {
+            error: "overlap",
+            reasons: [
+              {
+                code: "overlap",
+                message:
+                  "Plan wurde gerade geändert – bitte erneut übernehmen.",
+              },
+            ],
+            requestId: c.get("requestId"),
+          },
+          409,
+        );
+      copy = result.copy;
+    }
+    return c.json(
+      {
+        copy,
+        copied: plan.create.length,
+        alreadyPresent: plan.alreadyPresent,
+        skipped: plan.skipped,
+      },
+      201,
+    );
+  });
+
+  app.get("/schedule/copies", async (c) =>
+    c.json({ items: await repo.listCopies(today()) }, 200),
+  );
+
+  app.post("/schedule/copies/:id/undo", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID.test(id)) return notFound(c);
+    const parsed = await parseJson(c, VersionOnly);
+    if ("response" in parsed) return parsed.response;
+    const result = await repo.undoCopy(
+      id,
+      parsed.data.version,
+      today(),
+      c.get("auth").userId,
+    );
+    if (result.kind === "not_found") return notFound(c);
+    if (result.kind === "conflict")
+      return c.json(
+        {
+          error: "version_conflict",
+          current: result.current,
+          requestId: c.get("requestId"),
+        },
+        409,
+      );
+    return c.json({ removed: result.removed, copy: result.copy }, 200);
   });
 
   return app;

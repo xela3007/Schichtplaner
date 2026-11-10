@@ -7,18 +7,22 @@ import type { AuditEntry } from "#shared/locations.js";
 import {
   type AssignInput,
   type Assignment,
+  type CopyInput,
+  type ScheduleCopy,
   type ScheduleWeek,
   type ShiftOverride,
   toMin,
 } from "#shared/schedule.js";
 import type {
   AssignResult,
+  CreateCopyResult,
   DeactivateResult,
   OverrideResult,
   OverrideWrite,
   RemoveResult,
   ScheduleRepository,
   Target,
+  UndoCopyResult,
 } from "../schedule/repository.js";
 import type { InMemoryAvailabilityRepository } from "./fake-availability.js";
 import type {
@@ -36,6 +40,9 @@ type Logged = AuditEntry & { locationId: string };
 export class InMemoryScheduleRepository implements ScheduleRepository {
   rows = new Map<string, Assignment>();
   overrides = new Map<string, ShiftOverride>();
+  copies = new Map<string, Omit<ScheduleCopy, "remaining">>();
+  /** assignment id → copy id (the DB column copy_id) */
+  copyOf = new Map<string, string>();
   audit: Logged[] = [];
   constructor(
     private readonly deps: {
@@ -291,5 +298,98 @@ export class InMemoryScheduleRepository implements ScheduleRepository {
       changes: { entry: { from: null, to: w.snapshot } },
     });
     return { kind: "ok", override: result };
+  }
+
+  async createCopy(
+    meta: CopyInput,
+    inputs: AssignInput[],
+    _actorId: string,
+    today: string,
+  ): Promise<CreateCopyResult> {
+    // all-or-nothing like the single statement: check every overlap first
+    const all = [...this.rows.values()];
+    const planned: AssignInput[] = [];
+    for (const i of inputs) {
+      const clash = [...all, ...planned].some(
+        (a) =>
+          a.employeeId === i.employeeId &&
+          a.date === i.date &&
+          toMin(a.start) < toMin(i.end) &&
+          toMin(i.start) < toMin(a.end),
+      );
+      if (clash) return { kind: "overlap" };
+      planned.push(i);
+    }
+    const copyId = uuidv7();
+    this.copies.set(copyId, {
+      id: copyId,
+      sourceStart: meta.sourceStart,
+      targetStarts: meta.targetStarts,
+      locationIds: meta.locationIds,
+      copied: inputs.length,
+      actorEmail: "anke@example.org",
+      createdAt: now(),
+      undoneAt: null,
+      version: 1,
+    });
+    for (const i of inputs) {
+      const a: Assignment = {
+        id: uuidv7(),
+        ...i,
+        version: 1,
+        updatedAt: now(),
+      };
+      this.rows.set(a.id, a);
+      this.copyOf.set(a.id, copyId);
+      this.log(a.locationId, "assigned", null, i, "week_copied");
+    }
+    return {
+      kind: "ok",
+      copy: (await this.getCopy(copyId, today)) as ScheduleCopy,
+    };
+  }
+
+  private remaining(copyId: string, today: string) {
+    return [...this.rows.values()].filter(
+      (a) => this.copyOf.get(a.id) === copyId && a.date >= today,
+    );
+  }
+
+  async listCopies(today: string): Promise<ScheduleCopy[]> {
+    return [...this.copies.values()]
+      .reverse()
+      .slice(0, 20)
+      .map((c) => ({ ...c, remaining: this.remaining(c.id, today).length }));
+  }
+
+  async getCopy(id: string, today: string): Promise<ScheduleCopy | null> {
+    const c = this.copies.get(id);
+    return c ? { ...c, remaining: this.remaining(id, today).length } : null;
+  }
+
+  async undoCopy(
+    id: string,
+    version: number,
+    today: string,
+    _actorId?: string,
+  ): Promise<UndoCopyResult> {
+    const c = this.copies.get(id);
+    if (!c) return { kind: "not_found" };
+    if (c.version !== version || c.undoneAt)
+      return {
+        kind: "conflict",
+        current: (await this.getCopy(id, today)) as ScheduleCopy,
+      };
+    const gone = this.remaining(id, today);
+    for (const a of gone) {
+      this.rows.delete(a.id);
+      this.log(a.locationId, "unassigned", a, null, "copy_undone");
+    }
+    this.copies.set(id, { ...c, undoneAt: now(), version: c.version + 1 });
+    return {
+      kind: "ok",
+      removed: gone.length,
+      copy: (await this.getCopy(id, today)) as ScheduleCopy,
+    };
   }
 }
