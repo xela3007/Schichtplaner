@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { type PointerEvent, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import {
   addDays,
@@ -21,6 +21,8 @@ import {
   isOutdated,
   type ScheduleLocation,
   ScheduleWeek,
+  shiftsAt,
+  snapRange,
   toMin,
   weekPlan,
 } from "#shared/schedule.js";
@@ -38,8 +40,7 @@ import { AssignDialog, type Shift } from "./AssignDialog";
 import { CopyList } from "./CopyList";
 import { CopyWeekDialog } from "./CopyWeekDialog";
 import { ScheduleHistory } from "./ScheduleHistory";
-import { ResetCancelled, ShiftEditor } from "./ShiftEditor";
-import { employeeColor, layoutLanes, timeRange } from "./timeline";
+import { employeeColor, layoutLanes, minuteAt, timeRange } from "./timeline";
 
 const SHORT: Record<Weekday, string> = {
   mon: "Mo",
@@ -228,6 +229,8 @@ function DayTimeline({
   range,
   selected,
   onSelect,
+  editable,
+  onPick,
 }: {
   location: ScheduleLocation;
   date: string;
@@ -237,8 +240,87 @@ function DayTimeline({
   range: { from: number; to: number };
   selected: string | null;
   onSelect: (id: string | null) => void;
+  /** desktop, day not past: click/drag on an empty spot assigns (16bb5be3) */
+  editable: boolean;
+  onPick: (shift: Shift) => void;
 }) {
   const top = (t: string) => ((toMin(t) - range.from * 60) * HOUR) / 60;
+  const box = useRef<HTMLDivElement>(null);
+  const [drag, setDrag] = useState<{
+    y0: number;
+    a: number;
+    b: number;
+    moved: boolean;
+  } | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hint) return;
+    const t = setTimeout(() => setHint(null), 4000);
+    return () => clearTimeout(t);
+  }, [hint]);
+  useEffect(() => {
+    if (!drag) return;
+    const onKey = (ev: KeyboardEvent) => ev.key === "Escape" && setDrag(null);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [drag]);
+  const minuteOf = (clientY: number) =>
+    minuteAt(
+      clientY - (box.current?.getBoundingClientRect().top ?? 0),
+      range,
+      HOUR,
+    );
+  const finish = (d: NonNullable<typeof drag>) => {
+    const [first, ...rest] = shiftsAt(
+      location,
+      date,
+      week.overrides,
+      here,
+      d.a,
+    );
+    if (!first) {
+      setHint("keine Schicht zu dieser Zeit");
+      return;
+    }
+    const base = { location, date, start: first.start, end: first.end };
+    if (!d.moved) {
+      onPick({
+        ...base,
+        alternatives: rest.map(({ start, end }) => ({ start, end })),
+      });
+      return;
+    }
+    const r = snapRange(d.a, d.b, first);
+    onPick({ ...base, from: r.start, to: r.end, clipped: r.clipped });
+  };
+  const preview =
+    drag?.moved && snapRange(drag.a, drag.b, { start: "00:00", end: "24:00" });
+  const interact = editable
+    ? {
+        onPointerDown: (e: PointerEvent<HTMLDivElement>) => {
+          // only empty spots: bars are buttons, everything else is pointer-events-none
+          if (e.button !== 0 || e.target !== e.currentTarget) return;
+          e.currentTarget.setPointerCapture?.(e.pointerId);
+          const m = minuteOf(e.clientY);
+          setHint(null);
+          setDrag({ y0: e.clientY, a: m, b: m, moved: false });
+        },
+        onPointerMove: (e: PointerEvent<HTMLDivElement>) => {
+          if (!drag) return;
+          setDrag({
+            ...drag,
+            b: minuteOf(e.clientY),
+            moved: drag.moved || Math.abs(e.clientY - drag.y0) >= 6,
+          });
+        },
+        onPointerUp: () => {
+          if (!drag) return;
+          setDrag(null);
+          finish(drag);
+        },
+        onPointerCancel: () => setDrag(null),
+      }
+    : {};
   const segments = coverageFor(location, date, here, week.overrides);
   const lanes = layoutLanes(here);
   const hours = Array.from(
@@ -246,105 +328,132 @@ function DayTimeline({
     (_, i) => range.from + i,
   );
   return (
-    <div
-      className="relative overflow-hidden rounded-sm border bg-surface"
-      style={{ height: (range.to - range.from) * HOUR }}
-      data-testid="timeline"
-    >
-      {segments
-        .filter((s) => s.required > 0)
-        .map((s) => (
+    <div className="grid gap-1">
+      <div
+        ref={box}
+        className={cn(
+          "relative touch-none select-none overflow-hidden rounded-sm border bg-surface",
+          editable && "cursor-crosshair",
+        )}
+        style={{ height: (range.to - range.from) * HOUR }}
+        data-testid="timeline"
+        {...interact}
+      >
+        {segments
+          .filter((s) => s.required > 0)
+          .map((s) => (
+            <div
+              key={`${s.start}-${s.end}`}
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute right-0",
+                s.status === "gap" ? "bg-destructive-100" : "bg-brand-050",
+              )}
+              style={{
+                left: AXIS,
+                top: top(s.start),
+                height: top(s.end) - top(s.start),
+                backgroundImage:
+                  s.status === "gap"
+                    ? "repeating-linear-gradient(135deg, transparent 0 6px, rgba(200,71,47,.18) 6px 8px)"
+                    : undefined,
+              }}
+            ></div>
+          ))}
+        {hours.map((h) => (
           <div
-            key={`${s.start}-${s.end}`}
+            key={h}
             aria-hidden
-            className={cn(
-              "absolute right-0",
-              s.status === "gap" ? "bg-destructive-100" : "bg-brand-050",
-            )}
+            className="pointer-events-none absolute right-0 left-0 border-t border-border"
+            style={{ top: (h - range.from) * HOUR }}
+          >
+            <span className="absolute left-0.5 top-0 text-[10px] leading-none text-ink-3 tabular-nums">
+              {String(h).padStart(2, "0")}
+            </span>
+          </div>
+        ))}
+        {here.map((a) => {
+          const { lane, lanes: n } = lanes.get(a) ?? { lane: 0, lanes: 1 };
+          const color = employeeColor(a.employeeId);
+          const name = nameOf(a, week);
+          const own = notes.get(a.id) ?? [];
+          const employee = week.employees.find((e) => e.id === a.employeeId);
+          const height = Math.max(top(a.end) - top(a.start), 22);
+          return (
+            <button
+              key={a.id}
+              type="button"
+              title={`${name}, ${a.start}–${a.end}${own.length ? ` · ${own.join(" · ")}` : ""}`}
+              aria-label={`${name}, ${a.start}–${a.end}${own.length ? ` (${own.join(", ")})` : ""}`}
+              aria-pressed={selected === a.id}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onSelect(selected === a.id ? null : a.id)}
+              className={cn(
+                "absolute overflow-hidden rounded-xs border border-l-4 px-1 py-0.5 text-left text-[11px] leading-tight text-ink shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                own.length > 0 && "border-dashed",
+                selected === a.id && "ring-2 ring-ink",
+              )}
+              style={{
+                top: top(a.start),
+                height,
+                left: `calc(${AXIS} + (100% - ${AXIS}) * ${lane / n})`,
+                width: `calc((100% - ${AXIS}) / ${n} - 2px)`,
+                background: color.bg,
+                borderColor: own.length > 0 ? "var(--danger)" : color.border,
+                borderLeftColor: color.border,
+              }}
+            >
+              <span
+                className={cn(
+                  "block truncate font-medium",
+                  employee && !employee.active && "line-through",
+                )}
+              >
+                {own.length > 0 && "! "}
+                {shortName(a, week)}
+              </span>
+              {height >= 34 && (
+                <span className="block tabular-nums text-ink-2">
+                  {/* may wrap after the dash in narrow lanes */}
+                  {a.start}–{"\u200B"}
+                  {a.end}
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {/* gap labels above the bars, so a bar never hides what is missing */}
+        {segments
+          .filter((s) => s.status === "gap")
+          .map((s) => (
+            <span
+              key={`gap-${s.start}`}
+              className="pointer-events-none absolute right-1 z-10 rounded-xs bg-surface/90 px-0.5 text-[11px] font-medium leading-tight text-destructive"
+              style={{ top: Math.max(top(s.end) - 15, top(s.start)) }}
+            >
+              fehlt {s.required - s.assigned}
+            </span>
+          ))}
+        {preview && (
+          <div
+            aria-hidden
+            data-testid="drag-preview"
+            className="pointer-events-none absolute right-0 z-20 rounded-xs border border-brand-700 bg-brand-100/70 px-1 text-[11px] tabular-nums text-ink"
             style={{
               left: AXIS,
-              top: top(s.start),
-              height: top(s.end) - top(s.start),
-              backgroundImage:
-                s.status === "gap"
-                  ? "repeating-linear-gradient(135deg, transparent 0 6px, rgba(200,71,47,.18) 6px 8px)"
-                  : undefined,
-            }}
-          ></div>
-        ))}
-      {hours.map((h) => (
-        <div
-          key={h}
-          aria-hidden
-          className="pointer-events-none absolute right-0 left-0 border-t border-border"
-          style={{ top: (h - range.from) * HOUR }}
-        >
-          <span className="absolute left-0.5 top-0 text-[10px] leading-none text-ink-3 tabular-nums">
-            {String(h).padStart(2, "0")}
-          </span>
-        </div>
-      ))}
-      {here.map((a) => {
-        const { lane, lanes: n } = lanes.get(a) ?? { lane: 0, lanes: 1 };
-        const color = employeeColor(a.employeeId);
-        const name = nameOf(a, week);
-        const own = notes.get(a.id) ?? [];
-        const employee = week.employees.find((e) => e.id === a.employeeId);
-        const height = Math.max(top(a.end) - top(a.start), 22);
-        return (
-          <button
-            key={a.id}
-            type="button"
-            title={`${name}, ${a.start}–${a.end}${own.length ? ` · ${own.join(" · ")}` : ""}`}
-            aria-label={`${name}, ${a.start}–${a.end}${own.length ? ` (${own.join(", ")})` : ""}`}
-            aria-pressed={selected === a.id}
-            onClick={() => onSelect(selected === a.id ? null : a.id)}
-            className={cn(
-              "absolute overflow-hidden rounded-xs border border-l-4 px-1 py-0.5 text-left text-[11px] leading-tight text-ink shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              own.length > 0 && "border-dashed",
-              selected === a.id && "ring-2 ring-ink",
-            )}
-            style={{
-              top: top(a.start),
-              height,
-              left: `calc(${AXIS} + (100% - ${AXIS}) * ${lane / n})`,
-              width: `calc((100% - ${AXIS}) / ${n} - 2px)`,
-              background: color.bg,
-              borderColor: own.length > 0 ? "var(--danger)" : color.border,
-              borderLeftColor: color.border,
+              top: top(preview.start),
+              height: top(preview.end) - top(preview.start),
             }}
           >
-            <span
-              className={cn(
-                "block truncate font-medium",
-                employee && !employee.active && "line-through",
-              )}
-            >
-              {own.length > 0 && "! "}
-              {shortName(a, week)}
-            </span>
-            {height >= 34 && (
-              <span className="block tabular-nums text-ink-2">
-                {/* may wrap after the dash in narrow lanes */}
-                {a.start}–{"\u200B"}
-                {a.end}
-              </span>
-            )}
-          </button>
-        );
-      })}
-      {/* gap labels above the bars, so a bar never hides what is missing */}
-      {segments
-        .filter((s) => s.status === "gap")
-        .map((s) => (
-          <span
-            key={`gap-${s.start}`}
-            className="pointer-events-none absolute right-1 z-10 rounded-xs bg-surface/90 px-0.5 text-[11px] font-medium leading-tight text-destructive"
-            style={{ top: Math.max(top(s.end) - 15, top(s.start)) }}
-          >
-            fehlt {s.required - s.assigned}
-          </span>
-        ))}
+            {preview.start}–{preview.end}
+          </div>
+        )}
+      </div>
+      {hint && (
+        <p role="status" className="text-caption text-ink-2">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -368,9 +477,11 @@ function DayCell({
   const past = date < week.today;
   const editable = editableWeek && !past;
   const open = location.openingHours.some((o) => o.weekday === day);
-  const [editing, setEditing] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const { shifts, cancelled } = effectiveShifts(location, date, week.overrides);
+  const hasException = week.overrides.some(
+    (o) => o.locationId === location.id && o.date === date,
+  );
   const here = week.assignments.filter(
     (a) => a.locationId === location.id && a.date === date,
   );
@@ -405,59 +516,36 @@ function DayCell({
             {open ? "kein Bedarf" : "geschlossen"}
           </p>
         )}
-        {shifts.map((w) => {
-          const key = `${w.start}-${w.end}`;
-          const label = `${dayLabel} ${w.start}–${w.end}`;
-          return (
-            <div key={key} className="grid gap-1">
-              <span className="flex flex-wrap items-center gap-1 text-caption tabular-nums text-ink-2">
-                {w.start}–{w.end} · Soll {w.people}
-                {w.source === "added" && (
-                  <Pill variant="brand">zusätzlich</Pill>
-                )}
-                {w.source === "changed" && w.base && (
-                  <Pill variant="brand">
-                    angepasst (normal {w.base.start}–{w.base.end})
-                  </Pill>
-                )}
-              </span>
-              {editable && editing !== key && (
-                <span className="flex flex-wrap gap-1">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 px-2"
-                    onClick={() =>
-                      onAssign({ location, date, start: w.start, end: w.end })
-                    }
-                    aria-label={`${label} einteilen`}
-                  >
-                    + einteilen
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-1.5"
-                    onClick={() => setEditing(key)}
-                    aria-label={`${label} anpassen`}
-                  >
-                    anpassen
-                  </Button>
-                </span>
-              )}
-              {editing === key && (
-                <ShiftEditor
-                  location={location}
-                  date={date}
-                  shift={w}
-                  onDone={() => setEditing(null)}
-                />
-              )}
-            </div>
-          );
-        })}
+        {shifts.map((w) => (
+          <span
+            key={`${w.start}-${w.end}`}
+            className="flex flex-wrap items-center gap-1 text-caption tabular-nums text-ink-2"
+          >
+            {w.start}–{w.end} · Soll {w.people}
+            {w.source === "added" && <Pill variant="brand">zusätzlich</Pill>}
+            {w.source === "changed" && w.base && (
+              <Pill variant="brand">
+                angepasst (normal {w.base.start}–{w.base.end})
+              </Pill>
+            )}
+            {editable && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="ml-auto h-5 px-1.5 text-ink-2"
+                title="einteilen"
+                onClick={() =>
+                  onAssign({ location, date, start: w.start, end: w.end })
+                }
+                aria-label={`${dayLabel} ${w.start}–${w.end} einteilen`}
+              >
+                +
+              </Button>
+            )}
+          </span>
+        ))}
         {cancelled.map((c) => (
-          <div
+          <span
             key={c.override.id}
             className="flex flex-wrap items-center gap-1 text-caption"
           >
@@ -465,34 +553,17 @@ function DayCell({
               {c.base.start}–{c.base.end}
             </span>
             <Pill>entfällt</Pill>
-            {editable && (
-              <ResetCancelled
-                override={c.override}
-                label={`${dayLabel} ${c.base.start}–${c.base.end}`}
-              />
-            )}
-          </div>
+          </span>
         ))}
-        {editable &&
-          (editing === "new" ? (
-            <ShiftEditor
-              location={location}
-              date={date}
-              onDone={() => setEditing(null)}
-            />
-          ) : (
-            <div>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-1.5"
-                onClick={() => setEditing("new")}
-                aria-label={`${dayLabel} Schicht hinzufügen`}
-              >
-                + Schicht
-              </Button>
-            </div>
-          ))}
+        {!past && hasException && (
+          <Link
+            to={`/standorte/${location.id}?datum=${date}#ausnahmen`}
+            className="text-caption text-brand-700 underline underline-offset-4"
+            aria-label={`${dayLabel}: Ausnahmen im Standort bearbeiten`}
+          >
+            im Standort bearbeiten
+          </Link>
+        )}
       </div>
       <DayTimeline
         location={location}
@@ -503,6 +574,8 @@ function DayCell({
         range={range}
         selected={selected}
         onSelect={setSelected}
+        editable={editable}
+        onPick={onAssign}
       />
       <div className="grid content-start gap-1.5">
         {chosen && (

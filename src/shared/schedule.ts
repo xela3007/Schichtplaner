@@ -150,6 +150,10 @@ export const OverrideUpdate = z.union([
 ]);
 export type OverrideUpdate = z.infer<typeof OverrideUpdate>;
 
+/** GET /schedule/overrides — exceptions of one location from a date on (16bb5be3). */
+export const OverrideList = z.object({ overrides: z.array(ShiftOverride) });
+export type OverrideList = z.infer<typeof OverrideList>;
+
 export const ScheduleWeek = z.object({
   start: z.string(),
   today: z.string(),
@@ -434,6 +438,77 @@ export function effectiveShifts(
     (a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end),
   );
   return { shifts, cancelled };
+}
+
+// --- Picking a shift in the timeline (story 16bb5be3) -------------------------------
+export type ShiftAt = EffectiveShift & { gap: number };
+
+/**
+ * Effective shifts covering `minute` (start <= minute < end), ordered by the
+ * largest gap at that minute; ties: earlier start, then the shorter shift.
+ * gap = people − assignments anchored to the shift that cover the minute.
+ */
+export function shiftsAt(
+  location: Pick<ScheduleLocation, "id" | "staffingWindows">,
+  date: string,
+  overrides: readonly ShiftOverride[],
+  assignments: readonly Pick<
+    Assignment,
+    "locationId" | "date" | "start" | "end" | "shiftStart" | "shiftEnd"
+  >[],
+  minute: number,
+): ShiftAt[] {
+  const { shifts } = effectiveShifts(location, date, overrides);
+  return shifts
+    .filter((sh) => toMin(sh.start) <= minute && minute < toMin(sh.end))
+    .map((sh) => {
+      const covering = assignments.filter(
+        (a) =>
+          a.locationId === location.id &&
+          a.date === date &&
+          a.shiftStart === sh.start &&
+          a.shiftEnd === sh.end &&
+          toMin(a.start) <= minute &&
+          minute < toMin(a.end),
+      ).length;
+      return { ...sh, gap: sh.people - covering };
+    })
+    .sort(
+      (a, b) =>
+        b.gap - a.gap ||
+        toMin(a.start) - toMin(b.start) ||
+        toMin(a.end) - toMin(b.end),
+    );
+}
+
+export const SNAP_MINUTES = 30;
+
+/**
+ * A dragged range [a, b] (minutes, either direction) snapped outward to the
+ * 30-minute grid (at least one step) and clipped to `shift`.
+ */
+export function snapRange(
+  a: number,
+  b: number,
+  shift: { start: string; end: string },
+  step = SNAP_MINUTES,
+): { start: string; end: string; clipped: boolean } {
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  let start = Math.floor(lo / step) * step;
+  let end = Math.ceil(hi / step) * step;
+  if (end - start < step) end = start + step;
+  const s0 = toMin(shift.start);
+  const e0 = toMin(shift.end);
+  // Snapping alone must not count as clipping: only the raw drag is compared.
+  const clipped = lo < s0 || hi > e0;
+  start = Math.max(start, s0);
+  end = Math.min(end, e0);
+  if (end <= start) {
+    start = s0;
+    end = Math.min(e0, s0 + step);
+  }
+  return { start: fromMin(start), end: fromMin(end), clipped };
 }
 
 /** Assignment time is fine inside the opening hours, or inside the effective shift it is anchored to. */

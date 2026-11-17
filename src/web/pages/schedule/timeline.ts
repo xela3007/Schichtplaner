@@ -79,3 +79,13 @@ export function employeeColor(id: string) {
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return PALETTE[h % PALETTE.length] as (typeof PALETTE)[number];
 }
+
+/** Minute of the day at `y` px below the timeline's top, clamped to the visible range. */
+export function minuteAt(
+  y: number,
+  range: { from: number; to: number },
+  hourPx: number,
+): number {
+  const m = range.from * 60 + Math.round((y / hourPx) * 60);
+  return Math.min(Math.max(m, range.from * 60), range.to * 60);
+}

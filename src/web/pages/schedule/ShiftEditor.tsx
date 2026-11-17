@@ -25,7 +25,7 @@ function errorText(e: unknown) {
     if (e.code === "version_conflict")
       return "Die Schicht wurde inzwischen geändert. Der Plan zeigt jetzt den aktuellen Stand.";
     if (e.code === "already_overridden")
-      return "Für diese Schicht gibt es an dem Tag schon eine Abweichung. Der Plan wurde neu geladen.";
+      return "Für diese Schicht gibt es an dem Tag schon eine Ausnahme. Der Plan wurde neu geladen.";
     const body = e.body as {
       reasons?: { message: string }[];
       issues?: { message: string }[];
@@ -38,7 +38,8 @@ function errorText(e: unknown) {
 
 /**
  * Add a shift for one day, or adjust / cancel / reset / delete an existing one
- * (story 2b06b608). Removals of assignments always need a confirmation.
+ * (story 2b06b608). Since 16bb5be3 it lives in the location's "Ausnahmen" card.
+ * Removals of assignments always need a confirmation.
  */
 export function ShiftEditor({
   location,
@@ -88,6 +89,9 @@ export function ShiftEditor({
       });
       await queryClient.invalidateQueries({ queryKey: ["schedule-week"] });
       void queryClient.invalidateQueries({ queryKey: ["schedule-history"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["overrides", location.id],
+      });
       onDone();
     } catch (e) {
       if (e instanceof ApiError && e.code === "has_assignments") {
@@ -320,6 +324,9 @@ export function ResetCancelled({
     }
     void queryClient.invalidateQueries({ queryKey: ["schedule-week"] });
     void queryClient.invalidateQueries({ queryKey: ["schedule-history"] });
+    void queryClient.invalidateQueries({
+      queryKey: ["overrides", override.locationId],
+    });
   }
   return (
     <>

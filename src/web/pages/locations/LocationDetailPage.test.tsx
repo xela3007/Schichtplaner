@@ -38,6 +38,8 @@ function setup(permissions: string[]) {
         updatedAt: "2026-11-08T08:00:00.000Z",
       });
     if (url === `/locations/${ID}/history`) return res({ entries: [] });
+    if (url === `/schedule/overrides?locationId=${ID}`)
+      return res({ overrides: [] });
     throw new Error(`unexpected ${url}`);
   });
   vi.stubGlobal("fetch", fetch);
@@ -84,6 +86,24 @@ describe("LocationDetailPage – Besetzungsbedarf", () => {
     expect(screen.queryByText("Besetzungsbedarf")).toBeNull();
     expect(
       fetch.mock.calls.some(([url]) => String(url).endsWith("/staffing")),
+    ).toBe(false);
+  });
+
+  it("shows the exceptions card with schedule.manage alone, without staffing and history", async () => {
+    const fetch = setup(["schedule.manage"]);
+    expect(await screen.findByText("Keine Ausnahmen ab heute.")).toBeTruthy();
+    expect(screen.queryByText("Besetzungsbedarf")).toBeNull();
+    expect(
+      fetch.mock.calls.some(([u]) => String(u).includes("/staffing")),
+    ).toBe(false);
+  });
+
+  it("hides the exceptions card without schedule.manage", async () => {
+    const fetch = setup(["locations.manage"]);
+    expect(await screen.findByText("Besetzungsbedarf")).toBeTruthy();
+    expect(screen.queryByText("Ausnahmen")).toBeNull();
+    expect(
+      fetch.mock.calls.some(([u]) => String(u).startsWith("/schedule")),
     ).toBe(false);
   });
 });

@@ -99,6 +99,8 @@ export interface ScheduleRepository {
     actorId: string,
   ): Promise<DeactivateResult>;
   getOverride(id: string): Promise<ShiftOverride | null>;
+  /** Overrides of one location with date >= from, ordered by date, then time (16bb5be3). */
+  listOverrides(locationId: string, from: string): Promise<ShiftOverride[]>;
   writeOverride(write: OverrideWrite, actorId: string): Promise<OverrideResult>;
   /** ONE statement: copy row + all assignments (with copy_id) + their audit rows (Teil 3). */
   createCopy(
@@ -387,6 +389,15 @@ export class DrizzleScheduleRepository implements ScheduleRepository {
       sql`select ${OV_COLS} from ${shiftOverrides} where id = ${id}`,
     );
     return r.rows[0] ? toOverride(r.rows[0]) : null;
+  }
+
+  async listOverrides(locationId: string, from: string) {
+    const r = await this.db.execute<RawOverride>(
+      sql`select ${OV_COLS} from ${shiftOverrides}
+        where location_id = ${locationId} and date >= ${from}::date
+        order by date, coalesce(start_time, base_start), coalesce(end_time, base_end)`,
+    );
+    return r.rows.map(toOverride);
   }
 
   async writeOverride(

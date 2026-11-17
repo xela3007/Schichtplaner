@@ -30,8 +30,16 @@ const SHORT: Record<Weekday, string> = {
 export type Shift = {
   location: ScheduleLocation;
   date: string;
+  /** the shift's own window (anchor) */
   start: string;
   end: string;
+  /** preset assignment times, e.g. from dragging in the timeline (16bb5be3) */
+  from?: string;
+  to?: string;
+  /** the dragged range was cut to the shift */
+  clipped?: boolean;
+  /** other shifts at the clicked spot — switchable in the dialog */
+  alternatives?: { start: string; end: string }[];
 };
 
 function serverMessage(e: unknown): string {
@@ -62,8 +70,23 @@ export function AssignDialog({
 }) {
   const queryClient = useQueryClient();
   const titleId = useId();
-  const [start, setStart] = useState(shift.start);
-  const [end, setEnd] = useState(shift.end);
+  const [anchor, setAnchor] = useState({
+    start: shift.start,
+    end: shift.end,
+  });
+  const [start, setStart] = useState(shift.from ?? shift.start);
+  const [end, setEnd] = useState(shift.to ?? shift.end);
+  const options = [
+    { start: shift.start, end: shift.end },
+    ...(shift.alternatives ?? []),
+  ];
+  const pick = (key: string) => {
+    const next = options.find((o) => `${o.start}-${o.end}` === key);
+    if (!next) return;
+    setAnchor(next);
+    setStart(next.start);
+    setEnd(next.end);
+  };
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const firstField = useRef<HTMLInputElement>(null);
@@ -88,8 +111,8 @@ export function AssignDialog({
           date: shift.date,
           start,
           end,
-          shiftStart: shift.start,
-          shiftEnd: shift.end,
+          shiftStart: anchor.start,
+          shiftEnd: anchor.end,
         })
       ? "Liegt außerhalb der Öffnungszeiten und der Schicht."
       : null;
@@ -109,8 +132,8 @@ export function AssignDialog({
           date: shift.date,
           start,
           end,
-          shiftStart: shift.start,
-          shiftEnd: shift.end,
+          shiftStart: anchor.start,
+          shiftEnd: anchor.end,
         },
         schema: Assignment,
         auth: true,
@@ -137,7 +160,7 @@ export function AssignDialog({
         <div className="flex items-start justify-between gap-3">
           <h2 id={titleId} className="font-heading text-lg font-semibold">
             {shift.location.name} · {SHORT[weekdayOf(shift.date)]}{" "}
-            {formatDate(shift.date, false)} · {shift.start}–{shift.end}
+            {formatDate(shift.date, false)} · {anchor.start}–{anchor.end}
           </h2>
           <Button
             size="sm"
@@ -148,6 +171,26 @@ export function AssignDialog({
             ✕
           </Button>
         </div>
+        {options.length > 1 && (
+          <div className="grid gap-1.5">
+            <Label htmlFor={`${titleId}-shift`}>Schicht</Label>
+            <select
+              id={`${titleId}-shift`}
+              value={`${anchor.start}-${anchor.end}`}
+              onChange={(e) => pick(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm tabular-nums"
+            >
+              {options.map((o) => (
+                <option
+                  key={`${o.start}-${o.end}`}
+                  value={`${o.start}-${o.end}`}
+                >
+                  {o.start}–{o.end}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label htmlFor={`${titleId}-from`}>Von</Label>
@@ -173,6 +216,11 @@ export function AssignDialog({
           Für eine Teilschicht die Zeiten anpassen – innerhalb der
           Öffnungszeiten des Standorts.
         </p>
+        {shift.clipped && (
+          <p className="text-sm text-ink-2" role="status">
+            Zeitraum auf die Schicht {shift.start}–{shift.end} gekürzt.
+          </p>
+        )}
         {timeError && <p className="text-sm text-destructive">{timeError}</p>}
         {error && (
           <Alert variant="destructive">

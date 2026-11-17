@@ -249,6 +249,31 @@ export function scheduleRoutes(
     );
   }
 
+  app.get("/schedule/overrides", async (c) => {
+    const locationId = c.req.query("locationId") ?? "";
+    if (!UUID.test(locationId)) {
+      return c.json(
+        {
+          error: "validation_failed",
+          issues: [{ field: "locationId", message: "Kein gültiger Standort." }],
+          requestId: c.get("requestId"),
+        },
+        400,
+      );
+    }
+    const rawFrom = c.req.query("from");
+    let from = today();
+    if (rawFrom !== undefined) {
+      const parsed = IsoDate.safeParse(rawFrom);
+      if (!parsed.success) return badDate(c, "from");
+      from = parsed.data;
+    }
+    return c.json(
+      { overrides: await repo.listOverrides(locationId, from) },
+      200,
+    );
+  });
+
   app.post("/schedule/overrides", async (c) => {
     const parsed = await parseJson(c, OverrideInput);
     if ("response" in parsed) return parsed.response;

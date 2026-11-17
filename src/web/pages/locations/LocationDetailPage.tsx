@@ -28,6 +28,7 @@ import {
   kindLabel,
 } from "@/lib/locations";
 import { useCan } from "@/lib/permissions";
+import { ExceptionsCard } from "./ExceptionsCard";
 
 const ACTION_LABELS = AUDIT_ACTION_LABELS;
 const FIELD_LABELS: Record<string, string> = {
@@ -152,6 +153,7 @@ function StaffingCard({ location }: { location: Location }) {
 export function LocationDetailPage() {
   const { id = "" } = useParams();
   const canManage = useCan("locations.manage");
+  const canPlan = useCan("schedule.manage");
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
 
@@ -308,6 +310,8 @@ export function LocationDetailPage() {
       )}
 
       {canManage && <StaffingCard location={location} />}
+
+      {canPlan && <ExceptionsCard location={location} />}
 
       {canManage && <History id={location.id} />}
     </PageShell>

@@ -1,4 +1,4 @@
-import { cleanup, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { session } from "@/auth/session";
@@ -270,10 +270,172 @@ describe("SchedulePage – day overrides", () => {
     expect(
       within(tuesday).queryByRole("button", { name: /einteilen/ }),
     ).toBeNull();
+    // shifts are managed in the location now (16bb5be3)
     expect(
-      within(tuesday).getByRole("button", {
-        name: "Di 17.11. 07:30–19:00 auf Standard zurücksetzen",
-      }),
+      within(tuesday).queryByRole("button", { name: /anpassen/ }),
+    ).toBeNull();
+    expect(
+      within(tuesday).queryByRole("button", { name: /zurücksetzen/ }),
+    ).toBeNull();
+    expect(
+      within(tuesday).queryByRole("button", { name: /hinzufügen/ }),
+    ).toBeNull();
+    expect(
+      within(tuesday)
+        .getByRole("link", {
+          name: "Di 17.11.: Ausnahmen im Standort bearbeiten",
+        })
+        .getAttribute("href"),
+    ).toBe(`/standorte/${f.G21}?datum=2026-11-17#ausnahmen`);
+  });
+});
+
+describe("SchedulePage – assigning in the timeline (16bb5be3)", () => {
+  // range starts at 07:00 (opening 07:30), 40 px per hour, timeline top = 0 in jsdom
+  const y = (t: string) =>
+    ((Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) - 7 * 60) * 40) / 60;
+  const timelineOf = async (name: string) => {
+    const day = (
+      await screen.findAllByRole("region", { name })
+    )[0] as HTMLElement;
+    return { day, line: within(day).getByTestId("timeline") };
+  };
+  const click = (el: HTMLElement, t: string) => {
+    fireEvent.pointerDown(el, { button: 0, clientY: y(t), pointerId: 1 });
+    fireEvent.pointerUp(el, { button: 0, clientY: y(t), pointerId: 1 });
+  };
+  const setup = (o: object = {}) => {
+    mockApi(
+      { [`GET /schedule/week?start=${f.MON}`]: json(200, f.week(o)) },
+      PERMS,
+    );
+    render();
+  };
+
+  it("a click on an empty spot opens the dialog with the whole shift", async () => {
+    setup();
+    const { line } = await timelineOf("Di 17.11.");
+    click(line, "10:00");
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("07:30–19:00");
+    expect(
+      (within(dialog).getByLabelText("Von") as HTMLInputElement).value,
+    ).toBe("07:30");
+    expect(
+      (within(dialog).getByLabelText("Bis") as HTMLInputElement).value,
+    ).toBe("19:00");
+    expect(within(dialog).queryByLabelText("Schicht")).toBeNull();
+  });
+
+  it("overlapping shifts preselect the larger gap and stay switchable", async () => {
+    setup({
+      assignments: [f.asg({ date: "2026-11-17", employeeId: f.BEN })],
+      locations: [
+        {
+          ...f.week().locations[0],
+          staffingWindows: [
+            { weekday: "tue", start: "07:30", end: "19:00", people: 1 },
+            { weekday: "tue", start: "08:00", end: "10:00", people: 1 },
+          ],
+        },
+      ],
+    });
+    const { line } = await timelineOf("Di 17.11.");
+    click(line, "09:00");
+    const dialog = await screen.findByRole("dialog");
+    const select = within(dialog).getByLabelText(
+      "Schicht",
+    ) as HTMLSelectElement;
+    expect(select.value).toBe("08:00-10:00");
+    await userEvent.selectOptions(select, "07:30-19:00");
+    expect(
+      (within(dialog).getByLabelText("Bis") as HTMLInputElement).value,
+    ).toBe("19:00");
+  });
+
+  it("a click outside every shift shows a hint instead of the dialog", async () => {
+    setup();
+    // Wednesday is open but has no demand
+    const { day, line } = await timelineOf("Mi 18.11.");
+    click(line, "10:00");
+    expect(within(day).getByRole("status").textContent).toBe(
+      "keine Schicht zu dieser Zeit",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("dragging snaps to 30 minutes and is cut to the shift", async () => {
+    setup();
+    const { line } = await timelineOf("Di 17.11.");
+    const at = (t: string) => ({ button: 0, clientY: y(t), pointerId: 1 });
+    fireEvent.pointerDown(line, at("10:10"));
+    fireEvent.pointerMove(line, at("12:00"));
+    expect(within(line).getByTestId("drag-preview").textContent).toBe(
+      "10:00–12:00",
+    );
+    // upwards, above the shift start (07:30)
+    fireEvent.pointerMove(line, at("07:05"));
+    fireEvent.pointerUp(line, at("07:05"));
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      (within(dialog).getByLabelText("Von") as HTMLInputElement).value,
+    ).toBe("07:30");
+    expect(
+      (within(dialog).getByLabelText("Bis") as HTMLInputElement).value,
+    ).toBe("10:30");
+    expect(within(dialog).getByRole("status").textContent).toBe(
+      "Zeitraum auf die Schicht 07:30–19:00 gekürzt.",
+    );
+  });
+
+  it("a click on a bar opens its details, not the dialog", async () => {
+    setup({
+      assignments: [
+        f.asg({
+          date: "2026-11-17",
+          employeeId: f.BEN,
+          start: "08:00",
+          end: "12:00",
+        }),
+      ],
+    });
+    const { day } = await timelineOf("Di 17.11.");
+    const bar = within(day).getByRole("button", {
+      name: "Brandt, Ben, 08:00–12:00",
+    });
+    fireEvent.pointerDown(bar, {
+      button: 0,
+      clientY: y("09:00"),
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(bar, { button: 0, clientY: y("09:00"), pointerId: 1 });
+    await userEvent.click(bar);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      within(day).getByRole("button", { name: "Brandt, Ben austeilen" }),
     ).toBeTruthy();
+  });
+
+  it("past days do not react to clicks", async () => {
+    setup();
+    const { line } = await timelineOf("Mo 16.11.");
+    click(line, "10:00");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(line.className).not.toContain("cursor-crosshair");
+  });
+
+  it("phones only read: no +, no click handling", async () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: false,
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    setup();
+    const { day, line } = await timelineOf("Di 17.11.");
+    expect(within(day).queryByRole("button", { name: /einteilen/ })).toBeNull();
+    click(line, "10:00");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(within(day).queryByRole("status")).toBeNull();
   });
 });

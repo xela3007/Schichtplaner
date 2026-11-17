@@ -481,3 +481,83 @@ describe("day overrides (Teil 2)", () => {
     expect(into.body.error).toBe("unknown_shift");
   });
 });
+
+describe("exception list (16bb5be3)", () => {
+  const override = (o: object) =>
+    call("POST", "/schedule/overrides", { locationId: g21, ...o });
+
+  it("lists a location's overrides from today on, sorted by date and time", async () => {
+    await override({
+      date: "2026-11-23",
+      kind: "cancelled",
+      baseStart: "07:30",
+      baseEnd: "19:00",
+    });
+    await override({
+      date: MON,
+      kind: "added",
+      start: "19:00",
+      end: "21:00",
+      people: 1,
+    });
+    await override({
+      date: MON,
+      kind: "changed",
+      baseStart: "08:00",
+      baseEnd: "10:00",
+      start: "08:00",
+      end: "09:00",
+      people: 1,
+    });
+    await call("POST", "/schedule/overrides", {
+      locationId: g5,
+      date: MON,
+      kind: "cancelled",
+      baseStart: "07:30",
+      baseEnd: "19:00",
+    });
+    const all = await call("GET", `/schedule/overrides?locationId=${g21}`);
+    expect(all.status).toBe(200);
+    expect(
+      all.body.overrides.map(
+        (o: { date: string; kind: string }) => `${o.date} ${o.kind}`,
+      ),
+    ).toEqual([`${MON} changed`, `${MON} added`, "2026-11-23 cancelled"]);
+    const later = await call(
+      "GET",
+      `/schedule/overrides?locationId=${g21}&from=${TUE}`,
+    );
+    expect(later.body.overrides).toHaveLength(1);
+    expect(later.body.overrides[0].date).toBe("2026-11-23");
+  });
+
+  it("returns an empty list for an unknown location and 400 for bad params", async () => {
+    const unknown = await call(
+      "GET",
+      "/schedule/overrides?locationId=00000000-0000-7000-8000-000000000000",
+    );
+    expect(unknown.status).toBe(200);
+    expect(unknown.body.overrides).toEqual([]);
+    expect(
+      (await call("GET", "/schedule/overrides?locationId=nope")).status,
+    ).toBe(400);
+    expect(
+      (await call("GET", `/schedule/overrides?locationId=${g21}&from=morgen`))
+        .status,
+    ).toBe(400);
+  });
+
+  it("needs schedule.manage", async () => {
+    const other = await bearer(PLANNER_ID, ["locations.manage"]);
+    expect(
+      (
+        await call(
+          "GET",
+          `/schedule/overrides?locationId=${g21}`,
+          undefined,
+          other,
+        )
+      ).status,
+    ).toBe(403);
+  });
+});

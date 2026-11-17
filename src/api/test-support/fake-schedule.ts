@@ -236,6 +236,14 @@ export class InMemoryScheduleRepository implements ScheduleRepository {
     return this.overrides.get(id) ?? null;
   }
 
+  async listOverrides(locationId: string, from: string) {
+    const t = (o: ShiftOverride) =>
+      `${o.date} ${o.start ?? o.baseStart} ${o.end ?? o.baseEnd}`;
+    return [...this.overrides.values()]
+      .filter((o) => o.locationId === locationId && o.date >= from)
+      .sort((a, b) => t(a).localeCompare(t(b)));
+  }
+
   async writeOverride(w: OverrideWrite): Promise<OverrideResult> {
     let result: ShiftOverride | null = null;
     let locationId: string;

@@ -5,7 +5,7 @@ import { ScheduleWeek } from "#shared/schedule.js";
 import { session } from "@/auth/session";
 import { json, mockApi, renderRoutes } from "@/test-support/api";
 import * as f from "@/test-support/schedule-fixtures";
-import { AssignDialog } from "./AssignDialog";
+import { AssignDialog, type Shift } from "./AssignDialog";
 
 afterEach(() => {
   cleanup();
@@ -14,16 +14,16 @@ afterEach(() => {
 });
 
 const week = ScheduleWeek.parse(f.week());
-const shift = {
+const shift: Shift = {
   location: week.locations[0] as (typeof week.locations)[number],
   date: "2026-11-17",
   start: "07:30",
   end: "19:00",
 };
 
-function render(onClose = vi.fn()) {
+function render(onClose = vi.fn(), s: Shift = shift) {
   renderRoutes("/x", {
-    "/x": <AssignDialog week={week} shift={shift} onClose={onClose} />,
+    "/x": <AssignDialog week={week} shift={s} onClose={onClose} />,
   });
   return onClose;
 }
@@ -112,5 +112,57 @@ describe("AssignDialog", () => {
     expect(
       screen.getByText("Liegt außerhalb der Öffnungszeiten und der Schicht."),
     ).toBeTruthy();
+  });
+
+  it("presets dragged times and notes when the range was cut (16bb5be3)", async () => {
+    mockApi({}, ["schedule.manage"]);
+    render(vi.fn(), { ...shift, from: "17:00", to: "19:00", clipped: true });
+    expect((screen.getByLabelText("Von") as HTMLInputElement).value).toBe(
+      "17:00",
+    );
+    expect((screen.getByLabelText("Bis") as HTMLInputElement).value).toBe(
+      "19:00",
+    );
+    expect(screen.getByRole("status").textContent).toBe(
+      "Zeitraum auf die Schicht 07:30–19:00 gekürzt.",
+    );
+  });
+
+  it("switches between shifts at the clicked spot and sends the chosen anchor", async () => {
+    let body: Record<string, unknown> = {};
+    mockApi(
+      {
+        "POST /schedule/assignments": (init) => {
+          body = JSON.parse(String(init.body));
+          return json(
+            201,
+            f.asg({ ...body, id: "01a1bb3f-0000-7000-8000-000000000078" }),
+          );
+        },
+      },
+      ["schedule.manage"],
+    );
+    const onClose = render(vi.fn(), {
+      ...shift,
+      start: "08:00",
+      end: "10:00",
+      alternatives: [{ start: "07:30", end: "19:00" }],
+    });
+    const select = screen.getByLabelText("Schicht") as HTMLSelectElement;
+    expect(select.value).toBe("08:00-10:00");
+    expect(screen.getByRole("heading").textContent).toContain("08:00–10:00");
+    await userEvent.selectOptions(select, "07:30-19:00");
+    expect((screen.getByLabelText("Von") as HTMLInputElement).value).toBe(
+      "07:30",
+    );
+    expect(screen.getByRole("heading").textContent).toContain("07:30–19:00");
+    await userEvent.click(screen.getByRole("button", { name: /Brandt, Ben/ }));
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(body).toMatchObject({
+      start: "07:30",
+      end: "19:00",
+      shiftStart: "07:30",
+      shiftEnd: "19:00",
+    });
   });
 });
