@@ -68,11 +68,13 @@ export const EmployeeForm = z
     isFloater: z.boolean(),
     qualificationIds: z.array(z.string()),
     systemAccessIds: z.array(z.string()),
+    locationMode: z.enum(["all_except_blocked", "only_selected"]),
     locations: z.array(
       z.object({
         locationId: z.string(),
         trained: z.boolean(),
         preference: z.enum(["preferred", "neutral", "blocked"]),
+        released: z.boolean(),
       }),
     ),
     note: z.string(),

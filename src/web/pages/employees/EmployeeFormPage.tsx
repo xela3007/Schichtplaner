@@ -7,6 +7,9 @@ import {
   Employee,
   type EmployeeInput,
   formatMobile,
+  LOCATION_MODE_LABELS,
+  LOCATION_MODES,
+  type LocationMode,
   PREFERENCE_LABELS,
   PREFERENCES,
 } from "#shared/employees.js";
@@ -17,6 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Status } from "@/components/ui/status";
 import { ApiError, apiFetch } from "@/lib/api";
 import {
   EmployeeForm,
@@ -39,7 +43,7 @@ function toForm(
   return {
     firstName: e?.firstName ?? "",
     lastName: e?.lastName ?? "",
-    mobile: e ? formatMobile(e.mobile) : "",
+    mobile: e?.mobile ? formatMobile(e.mobile) : "",
     email: e?.email ?? "",
     personnelNo: e?.personnelNo ?? "",
     contractTypeId: e?.contractTypeId ?? "",
@@ -47,6 +51,7 @@ function toForm(
     isFloater: e?.isFloater ?? false,
     qualificationIds: e?.qualificationIds ?? [],
     systemAccessIds: e?.systemAccessIds ?? [],
+    locationMode: e?.locationMode ?? "all_except_blocked",
     // one row per ACTIVE location; inactive ones stay untouched on the server
     locations: activeLocations.map((l) => {
       const stored = e?.locations.find((x) => x.locationId === l.id);
@@ -54,6 +59,7 @@ function toForm(
         locationId: l.id,
         trained: stored?.trained ?? false,
         preference: stored?.preference ?? "neutral",
+        released: stored?.released ?? false,
       };
     }),
     note: e?.note ?? "",
@@ -161,16 +167,40 @@ export function EmployeeFormPage() {
     defaultValues: toForm(undefined, []),
   });
   const { errors, isSubmitting } = form.formState;
-  const [isFloater, qualificationIds, systemAccessIds, contractTypeId] =
-    useWatch({
-      control: form.control,
-      name: [
-        "isFloater",
-        "qualificationIds",
-        "systemAccessIds",
-        "contractTypeId",
-      ],
+  const [
+    isFloater,
+    qualificationIds,
+    systemAccessIds,
+    contractTypeId,
+    locationMode,
+    formLocations,
+  ] = useWatch({
+    control: form.control,
+    name: [
+      "isFloater",
+      "qualificationIds",
+      "systemAccessIds",
+      "contractTypeId",
+      "locationMode",
+      "locations",
+    ],
+  });
+  const [modeReset, setModeReset] = useState(false);
+  const onlySelected = locationMode === "only_selected";
+  // Switching the mode clears blocks and releases; "eingearbeitet" and "bevorzugt" stay (dc6c6578).
+  function switchMode(next: LocationMode) {
+    if (next === locationMode) return;
+    form.setValue("locationMode", next, { shouldDirty: true });
+    form.getValues("locations").forEach((l, i) => {
+      if (l.preference === "blocked")
+        form.setValue(`locations.${i}.preference`, "neutral", {
+          shouldDirty: true,
+        });
+      if (l.released)
+        form.setValue(`locations.${i}.released`, false, { shouldDirty: true });
     });
+    setModeReset(true);
+  }
 
   // Load once (and again only on "Aktuellen Stand laden"), when locations are known.
   useEffect(() => {
@@ -368,7 +398,7 @@ export function EmployeeFormPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <FormField
                   id="mobile"
-                  label="Handynummer"
+                  label="Handynummer (optional)"
                   type="tel"
                   autoComplete="off"
                   placeholder="z. B. 0151 23456789 oder +43 …"
@@ -485,6 +515,37 @@ export function EmployeeFormPage() {
                   Qualifikationen gelten weiter.
                 </p>
               )}
+              <fieldset className="grid gap-2">
+                <legend className="mb-1 text-sm font-medium">Einsatz</legend>
+                <div className="flex flex-wrap gap-x-6 gap-y-2">
+                  {LOCATION_MODES.map((m) => (
+                    <label key={m} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name="locationMode"
+                        value={m}
+                        className="size-4 accent-brand-700"
+                        checked={locationMode === m}
+                        onChange={() => switchMode(m)}
+                      />
+                      {LOCATION_MODE_LABELS[m]}
+                    </label>
+                  ))}
+                </div>
+                {modeReset && (
+                  <p className="text-sm text-muted-foreground" role="status">
+                    Sperren bzw. Freigaben wurden zurückgesetzt.
+                  </p>
+                )}
+                {onlySelected &&
+                  activeLocations.length > 0 &&
+                  !formLocations.some((l) => l.released) && (
+                    <Status tone="warn" className="text-sm">
+                      Noch kein Standort freigegeben – so ist keine Einteilung
+                      möglich.
+                    </Status>
+                  )}
+              </fieldset>
               {activeLocations.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   Keine aktiven Standorte.
@@ -494,9 +555,29 @@ export function EmployeeFormPage() {
                   {activeLocations.map((l, i) => (
                     <li
                       key={l.id}
-                      className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_auto_12rem] sm:items-center"
+                      className={
+                        onlySelected
+                          ? "grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_auto_auto_12rem] sm:items-center"
+                          : "grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_auto_12rem] sm:items-center"
+                      }
                     >
                       <span className="font-medium">{l.name}</span>
+                      {onlySelected && (
+                        <span className="flex items-center gap-2 text-sm">
+                          <input
+                            id={`loc-${i}-released`}
+                            type="checkbox"
+                            className="size-4 rounded-xs accent-brand-700"
+                            {...form.register(
+                              `locations.${i}.released` as const,
+                            )}
+                          />
+                          <label htmlFor={`loc-${i}-released`}>
+                            <span className="sr-only">{`${l.name}: `}</span>
+                            freigegeben
+                          </label>
+                        </span>
+                      )}
                       <span className="flex items-center gap-2 text-sm">
                         {isFloater ? (
                           <input
@@ -529,7 +610,9 @@ export function EmployeeFormPage() {
                         aria-label={`${l.name}: Vorliebe`}
                         {...form.register(`locations.${i}.preference` as const)}
                       >
-                        {PREFERENCES.map((p) => (
+                        {PREFERENCES.filter(
+                          (p) => !(onlySelected && p === "blocked"),
+                        ).map((p) => (
                           <option key={p} value={p}>
                             {PREFERENCE_LABELS[p]}
                           </option>

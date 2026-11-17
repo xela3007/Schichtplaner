@@ -215,6 +215,7 @@ export function EmployeeListPage() {
                       )}
                       {e.isFloater && <Pill variant="brand">Springer</Pill>}
                       {!e.active && <Pill>ausgeschieden</Pill>}
+                      {!e.mobile && <Pill>ohne Mobilnummer</Pill>}
                     </div>
                     <div className="text-muted-foreground">
                       {ct?.name ?? "—"} · {formatHours(hours)}/Woche

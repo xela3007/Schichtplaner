@@ -147,6 +147,44 @@ describe("blocks", () => {
         ),
       ).blocks,
     ).toEqual(["location_blocked"]);
+    // dc6c6578: only_selected without a release blocks with its own wording
+    const notReleased = evaluateCandidate(
+      ctx({
+        employee: emp({
+          locationMode: "only_selected",
+          locations: [
+            {
+              locationId: L2,
+              trained: true,
+              preference: "neutral",
+              released: true,
+            },
+          ],
+        }),
+      }),
+      slot,
+    ).blocks;
+    expect(notReleased.map((b) => b.message)).toContain(
+      "nicht für diesen Standort freigegeben",
+    );
+    expect(notReleased.map((b) => b.code)).toContain("location_blocked");
+    const released = evaluateCandidate(
+      ctx({
+        employee: emp({
+          locationMode: "only_selected",
+          locations: [
+            {
+              locationId: L1,
+              trained: true,
+              preference: "neutral",
+              released: true,
+            },
+          ],
+        }),
+      }),
+      slot,
+    ).blocks;
+    expect(released.map((b) => b.code)).not.toContain("location_blocked");
     const r = evaluateCandidate(
       ctx({
         assignments: [asg({ locationId: L2, start: "15:00", end: "18:00" })],

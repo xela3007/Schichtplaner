@@ -161,8 +161,18 @@ describe("create and update", () => {
     });
     expect(updated.body.locations).toEqual(
       expect.arrayContaining([
-        { locationId: g21, trained: true, preference: "neutral" },
-        { locationId: g5, trained: false, preference: "blocked" },
+        {
+          locationId: g21,
+          trained: true,
+          preference: "neutral",
+          released: false,
+        },
+        {
+          locationId: g5,
+          trained: false,
+          preference: "blocked",
+          released: false,
+        },
       ]),
     );
   });
@@ -207,5 +217,88 @@ describe("history", () => {
     });
     expect(JSON.stringify(entries)).not.toContain("664");
     expect(JSON.stringify(entries)).not.toContain("anna@example.org");
+  });
+});
+
+describe("optional mobile and location mode (dc6c6578)", () => {
+  it("creates and updates without a mobile number", async () => {
+    const { mobile: _m, ...rest } = anna();
+    const created = await call("POST", "/employees", rest);
+    expect(created.status).toBe(201);
+    expect(created.body.mobile).toBeNull();
+    expect(created.body.locationMode).toBe("all_except_blocked");
+    const updated = await call("PUT", `/employees/${created.body.id}`, {
+      ...rest,
+      mobile: "",
+      version: 1,
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.mobile).toBeNull();
+    expect(
+      (await call("POST", "/employees", { ...rest, mobile: "abc" })).status,
+    ).toBe(400);
+  });
+
+  it("round-trips only_selected with releases and records it in the history", async () => {
+    const created = (await call("POST", "/employees", anna())).body;
+    const updated = await call("PUT", `/employees/${created.id}`, {
+      ...anna(),
+      locationMode: "only_selected",
+      locations: [
+        {
+          locationId: g21,
+          trained: true,
+          preference: "preferred",
+          released: true,
+        },
+      ],
+      version: 1,
+    });
+    expect(updated.status).toBe(200);
+    expect(updated.body.locationMode).toBe("only_selected");
+    expect(updated.body.locations).toEqual([
+      {
+        locationId: g21,
+        trained: true,
+        preference: "preferred",
+        released: true,
+      },
+    ]);
+    const { entries } = (await call("GET", `/employees/${created.id}/history`))
+      .body;
+    expect(entries[0].changes.locationMode).toEqual({
+      from: "all_except_blocked",
+      to: "only_selected",
+    });
+    expect(entries[0].changes.locations.to[g21]).toBe(
+      "trained/preferred/released",
+    );
+  });
+
+  it("400 for releases without the mode and for blocks within it", async () => {
+    const bad1 = await call("POST", "/employees", {
+      ...anna(),
+      locations: [
+        {
+          locationId: g21,
+          trained: false,
+          preference: "neutral",
+          released: true,
+        },
+      ],
+    });
+    expect(bad1.status).toBe(400);
+    expect(bad1.body.issues[0]).toMatchObject({
+      field: "locations",
+      message: "Freigaben gibt es nur bei „nur ausgewählte Standorte“.",
+    });
+    const bad2 = await call("POST", "/employees", {
+      ...anna(),
+      locationMode: "only_selected",
+    });
+    expect(bad2.status).toBe(400);
+    expect(bad2.body.issues[0].message).toBe(
+      "Bei „nur ausgewählte Standorte“ gibt es keine Sperren.",
+    );
   });
 });

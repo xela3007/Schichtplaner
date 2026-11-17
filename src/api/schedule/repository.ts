@@ -205,9 +205,10 @@ export class DrizzleScheduleRepository implements ScheduleRepository {
     const assignedIds = [...new Set(assignments.map((a) => a.employeeId))];
     const emps = await this.db.execute<ScheduleWeek["employees"][number]>(sql`
       select e.id, e.first_name as "firstName", e.last_name as "lastName", e.active, e.is_floater as "isFloater",
+        e.location_mode as "locationMode",
         coalesce(e.weekly_minutes_override, ct.weekly_minutes) as "weeklyTarget",
         ct.allowed_shift_minutes as "allowedShiftMinutes", ct.max_daily_minutes as "maxDailyMinutes",
-        coalesce((select json_agg(json_build_object('locationId', el.location_id, 'trained', el.trained, 'preference', el.preference))
+        coalesce((select json_agg(json_build_object('locationId', el.location_id, 'trained', el.trained, 'preference', el.preference, 'released', el.released))
           from ${employeeLocations} el where el.employee_id = e.id), '[]') as locations
       from ${employees} e join ${contractTypes} ct on ct.id = e.contract_type_id
       where e.active or e.id::text in (select jsonb_array_elements_text(${JSON.stringify(assignedIds)}::jsonb))

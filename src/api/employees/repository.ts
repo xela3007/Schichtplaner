@@ -46,13 +46,13 @@ type Row = Omit<Employee, "updatedAt"> & { updatedAt: string };
 const SELECT = sql`
   select e.id, e.first_name as "firstName", e.last_name as "lastName", e.mobile, e.email,
     e.personnel_no as "personnelNo", e.contract_type_id as "contractTypeId",
-    e.weekly_minutes_override as "weeklyMinutesOverride", e.is_floater as "isFloater", e.note,
+    e.weekly_minutes_override as "weeklyMinutesOverride", e.is_floater as "isFloater", e.location_mode as "locationMode", e.note,
     e.active, e.version, e.updated_at as "updatedAt",
     coalesce((select json_agg(q.qualification_id order by q.qualification_id)
       from ${employeeQualifications} q where q.employee_id = e.id), '[]') as "qualificationIds",
     coalesce((select json_agg(s.system_access_id order by s.system_access_id)
       from ${employeeSystemAccesses} s where s.employee_id = e.id), '[]') as "systemAccessIds",
-    coalesce((select json_agg(json_build_object('locationId', l.location_id, 'trained', l.trained, 'preference', l.preference) order by l.location_id)
+    coalesce((select json_agg(json_build_object('locationId', l.location_id, 'trained', l.trained, 'preference', l.preference, 'released', l.released) order by l.location_id)
       from ${employeeLocations} l where l.employee_id = e.id), '[]') as "locations"
   from ${employees} e`;
 
@@ -69,6 +69,7 @@ function joinCtes(input: EmployeeInput) {
     location_id: l.locationId,
     trained: l.trained,
     preference: l.preference,
+    released: l.released ?? false,
   }));
   // Deletes only touch keys NOT in the new set, inserts only keys IN it — the
   // sibling CTEs never fight over the same row.
@@ -84,10 +85,11 @@ function joinCtes(input: EmployeeInput) {
     dl as (delete from ${employeeLocations} x using target, ${locations} loc
       where x.employee_id = target.id and loc.id = x.location_id and loc.active
         and not (x.location_id::text in (select r->>'location_id' from jsonb_array_elements(${json(locs)}) r))),
-    il as (insert into ${employeeLocations} (employee_id, location_id, trained, preference)
-      select target.id, r.location_id, r.trained, r.preference
-      from target, jsonb_to_recordset(${json(locs)}) as r(location_id uuid, trained boolean, preference text)
-      on conflict (employee_id, location_id) do update set trained = excluded.trained, preference = excluded.preference)`;
+    il as (insert into ${employeeLocations} (employee_id, location_id, trained, preference, released)
+      select target.id, r.location_id, r.trained, r.preference, r.released
+      from target, jsonb_to_recordset(${json(locs)}) as r(location_id uuid, trained boolean, preference text, released boolean)
+      on conflict (employee_id, location_id) do update set trained = excluded.trained, preference = excluded.preference,
+        released = excluded.released)`;
 }
 
 const auditCte = (
@@ -123,7 +125,9 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
       sql`select id from ${locations} where active = false`,
     );
     const inactive = new Set(r.rows.map((x) => x.id));
-    const kept = before.locations.filter((l) => inactive.has(l.locationId));
+    const kept = before.locations
+      .filter((l) => inactive.has(l.locationId))
+      .map((l) => ({ ...l, released: l.released ?? false }));
     return { ...input, locations: [...input.locations, ...kept] };
   }
 
@@ -132,9 +136,9 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
     await this.db.execute(sql`
       with target as (
         insert into ${employees} (id, first_name, last_name, personnel_no, mobile, email, contract_type_id,
-          weekly_minutes_override, is_floater, note)
+          weekly_minutes_override, is_floater, location_mode, note)
         values (${id}, ${input.firstName}, ${input.lastName}, ${input.personnelNo}, ${input.mobile}, ${input.email},
-          ${input.contractTypeId}, ${input.weeklyMinutesOverride}::int, ${input.isFloater}, ${input.note})
+          ${input.contractTypeId}, ${input.weeklyMinutesOverride}::int, ${input.isFloater}, ${input.locationMode}, ${input.note})
         returning id
       ), ${joinCtes(input)}, ${auditCte("created", diffEmployee(null, input), actorId)}
       select id from target`);
@@ -155,7 +159,8 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
         update ${employees} set first_name = ${input.firstName}, last_name = ${input.lastName},
           personnel_no = ${input.personnelNo}, mobile = ${input.mobile}, email = ${input.email},
           contract_type_id = ${input.contractTypeId}, weekly_minutes_override = ${input.weeklyMinutesOverride}::int,
-          is_floater = ${input.isFloater}, note = ${input.note}, version = version + 1, updated_at = now()
+          is_floater = ${input.isFloater}, location_mode = ${input.locationMode}, note = ${input.note},
+          version = version + 1, updated_at = now()
         where id = ${id} and version = ${version}
         returning id
       ), ${joinCtes(input)}, ${auditCte("updated", diffEmployee(before, after), actorId)}

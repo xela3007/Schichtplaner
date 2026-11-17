@@ -3,6 +3,7 @@ import {
   EmployeeInput,
   effectiveWeeklyMinutes,
   formatMobile,
+  isBlockedAt,
   isTrainedAt,
   matchesSearch,
   normalizeMobile,
@@ -62,7 +63,7 @@ describe("EmployeeInput", () => {
       ],
     });
     expect(parsed.locations).toEqual([
-      { locationId: L1, trained: true, preference: "neutral" },
+      { locationId: L1, trained: true, preference: "neutral", released: false },
     ]);
     expect(
       EmployeeInput.safeParse({
@@ -115,5 +116,94 @@ describe("helpers", () => {
     expect(matchesSearch(p, "weiss jörg")).toBe(true);
     expect(matchesSearch(p, "0042")).toBe(true);
     expect(matchesSearch(p, "anna")).toBe(false);
+  });
+});
+
+describe("optional mobile and location mode (dc6c6578)", () => {
+  it("mobile: missing, empty or blank → null; invalid stays an error", () => {
+    const { mobile: _m, ...noMobile } = base;
+    expect(EmployeeInput.parse(noMobile).mobile).toBeNull();
+    expect(EmployeeInput.parse({ ...base, mobile: "" }).mobile).toBeNull();
+    expect(EmployeeInput.parse({ ...base, mobile: "   " }).mobile).toBeNull();
+    expect(EmployeeInput.parse({ ...base, mobile: null }).mobile).toBeNull();
+    expect(
+      EmployeeInput.safeParse({ ...base, mobile: "abc" }).error?.issues[0]
+        ?.message,
+    ).toBe("Keine gültige Handynummer.");
+  });
+
+  it("defaults to all_except_blocked and keeps released rows", () => {
+    expect(EmployeeInput.parse(base).locationMode).toBe("all_except_blocked");
+    const p = EmployeeInput.parse({
+      ...base,
+      locationMode: "only_selected",
+      locations: [
+        {
+          locationId: L1,
+          trained: false,
+          preference: "neutral",
+          released: true,
+        },
+        { locationId: L2, trained: false, preference: "neutral" },
+      ],
+    });
+    expect(p.locations).toEqual([
+      { locationId: L1, trained: false, preference: "neutral", released: true },
+    ]);
+  });
+
+  it("rejects releases in all_except_blocked and blocks in only_selected", () => {
+    const msg = (o: object) =>
+      EmployeeInput.safeParse({ ...base, ...o }).error?.issues.map(
+        (i) => `${i.path.join(".")}: ${i.message}`,
+      );
+    expect(
+      msg({
+        locations: [
+          {
+            locationId: L1,
+            trained: false,
+            preference: "neutral",
+            released: true,
+          },
+        ],
+      }),
+    ).toEqual([
+      "locations: Freigaben gibt es nur bei „nur ausgewählte Standorte“.",
+    ]);
+    expect(
+      msg({
+        locationMode: "only_selected",
+        locations: [{ locationId: L1, trained: false, preference: "blocked" }],
+      }),
+    ).toEqual([
+      "locations: Bei „nur ausgewählte Standorte“ gibt es keine Sperren.",
+    ]);
+  });
+
+  it("isBlockedAt: blocks vs. missing releases, incl. locations without a row", () => {
+    const blocking = {
+      locationMode: "all_except_blocked" as const,
+      locations: [
+        { locationId: L1, trained: false, preference: "blocked" as const },
+      ],
+    };
+    expect(isBlockedAt(blocking, L1)).toBe(true);
+    expect(isBlockedAt(blocking, L2)).toBe(false);
+    // profiles without a mode behave like all_except_blocked
+    expect(isBlockedAt({ locations: blocking.locations }, L1)).toBe(true);
+    const selecting = {
+      locationMode: "only_selected" as const,
+      locations: [
+        {
+          locationId: L1,
+          trained: false,
+          preference: "neutral" as const,
+          released: true,
+        },
+      ],
+    };
+    expect(isBlockedAt(selecting, L1)).toBe(false);
+    expect(isBlockedAt(selecting, L2)).toBe(true);
   });
 });

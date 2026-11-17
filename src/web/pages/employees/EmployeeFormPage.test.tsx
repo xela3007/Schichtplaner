@@ -34,7 +34,8 @@ describe("EmployeeFormPage", () => {
     expect(
       await screen.findByText("Bitte einen Vornamen angeben."),
     ).toBeTruthy();
-    expect(screen.getByText("Bitte eine Handynummer angeben.")).toBeTruthy();
+    // mobile is optional since dc6c6578
+    expect(screen.queryByText("Bitte eine Handynummer angeben.")).toBeNull();
     expect(screen.getByText("Bitte einen Vertragstyp wählen.")).toBeTruthy();
     expect(fetch.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
       false,
@@ -53,7 +54,10 @@ describe("EmployeeFormPage", () => {
     renderRoutes("/mitarbeiter/neu", routes);
     await userEvent.type(await screen.findByLabelText("Vorname"), "Anna");
     await userEvent.type(screen.getByLabelText("Nachname"), "Müller");
-    await userEvent.type(screen.getByLabelText("Handynummer"), "0151 23456789");
+    await userEvent.type(
+      screen.getByLabelText("Handynummer (optional)"),
+      "0151 23456789",
+    );
     await userEvent.selectOptions(screen.getByLabelText("Vertragstyp"), f.CT30);
     await userEvent.type(
       screen.getByLabelText("Abweichende Wochenstunden (optional)"),
@@ -67,7 +71,15 @@ describe("EmployeeFormPage", () => {
       mobile: "+4915123456789",
       weeklyMinutesOverride: 1950,
       qualificationIds: [f.QKB],
-      locations: [{ locationId: f.G21, trained: true, preference: "neutral" }],
+      locationMode: "all_except_blocked",
+      locations: [
+        {
+          locationId: f.G21,
+          trained: true,
+          preference: "neutral",
+          released: false,
+        },
+      ],
     });
     // inactive qualification is not offered for a new employee
     expect(screen.queryByLabelText("Ersthelfer")).toBeNull();
@@ -120,5 +132,90 @@ describe("EmployeeFormPage", () => {
     expect((screen.getByLabelText("Vorname") as HTMLInputElement).value).toBe(
       "Anne",
     );
+  });
+
+  it("saves without a mobile number; an invalid one is still refused (dc6c6578)", async () => {
+    let body: Record<string, unknown> = {};
+    mockApi({
+      ...lists,
+      "POST /employees": (init) => {
+        body = JSON.parse(String(init.body));
+        return json(201, { ...f.anna, id: f.ANNA, mobile: null });
+      },
+    });
+    renderRoutes("/mitarbeiter/neu", routes);
+    await userEvent.type(await screen.findByLabelText("Vorname"), "Anna");
+    await userEvent.type(screen.getByLabelText("Nachname"), "Müller");
+    await userEvent.selectOptions(screen.getByLabelText("Vertragstyp"), f.CT30);
+    const mobile = screen.getByLabelText("Handynummer (optional)");
+    await userEvent.type(mobile, "abc");
+    await userEvent.click(screen.getByRole("button", { name: "Speichern" }));
+    expect(await screen.findByText("Keine gültige Handynummer.")).toBeTruthy();
+    await userEvent.clear(mobile);
+    await userEvent.click(screen.getByRole("button", { name: "Speichern" }));
+    expect(await screen.findByText("Detailseite")).toBeTruthy();
+    expect(body.mobile).toBeNull();
+  });
+
+  it("only selected locations: switching clears blocks, offers releases and no blocks (dc6c6578)", async () => {
+    let body: Record<string, unknown> = {};
+    mockApi({
+      ...lists,
+      "POST /employees": (init) => {
+        body = JSON.parse(String(init.body));
+        return json(201, { ...f.anna, id: f.ANNA });
+      },
+    });
+    renderRoutes("/mitarbeiter/neu", routes);
+    await userEvent.type(await screen.findByLabelText("Vorname"), "Anna");
+    await userEvent.type(screen.getByLabelText("Nachname"), "Müller");
+    await userEvent.selectOptions(screen.getByLabelText("Vertragstyp"), f.CT30);
+    await userEvent.selectOptions(
+      screen.getByLabelText("Gebäude 5: Vorliebe"),
+      "blocked",
+    );
+    await userEvent.click(screen.getByLabelText("Gebäude 21: eingearbeitet"));
+    expect(screen.queryByLabelText("Gebäude 21: freigegeben")).toBeNull();
+
+    await userEvent.click(
+      screen.getByLabelText("nur an ausgewählten Standorten"),
+    );
+    expect(
+      screen.getByText("Sperren bzw. Freigaben wurden zurückgesetzt."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Noch kein Standort freigegeben – so ist keine Einteilung möglich.",
+      ),
+    ).toBeTruthy();
+    const pref = screen.getByLabelText(
+      "Gebäude 5: Vorliebe",
+    ) as HTMLSelectElement;
+    expect(pref.value).toBe("neutral");
+    expect([...pref.options].map((o) => o.value)).not.toContain("blocked");
+    expect(
+      (screen.getByLabelText("Gebäude 21: eingearbeitet") as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+
+    await userEvent.click(screen.getByLabelText("Gebäude 21: freigegeben"));
+    expect(
+      screen.queryByText(
+        "Noch kein Standort freigegeben – so ist keine Einteilung möglich.",
+      ),
+    ).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Speichern" }));
+    expect(await screen.findByText("Detailseite")).toBeTruthy();
+    expect(body).toMatchObject({
+      locationMode: "only_selected",
+      locations: [
+        {
+          locationId: f.G21,
+          trained: true,
+          preference: "neutral",
+          released: true,
+        },
+      ],
+    });
   });
 });

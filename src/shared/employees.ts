@@ -17,8 +17,19 @@ export const EmployeeLocation = z.object({
   locationId: z.uuid(),
   trained: z.boolean(),
   preference: Preference,
+  /** only meaningful in location mode "only_selected" (dc6c6578); missing = false */
+  released: z.boolean().optional(),
 });
 export type EmployeeLocation = z.infer<typeof EmployeeLocation>;
+
+// --- Where someone may work (dc6c6578) ---------------------------------------------
+export const LOCATION_MODES = ["all_except_blocked", "only_selected"] as const;
+export const LocationMode = z.enum(LOCATION_MODES);
+export type LocationMode = z.infer<typeof LocationMode>;
+export const LOCATION_MODE_LABELS: Record<LocationMode, string> = {
+  all_except_blocked: "an allen Standorten außer gesperrten",
+  only_selected: "nur an ausgewählten Standorten",
+};
 
 /** Any valid number, national input defaults to Germany; stored as E.164. */
 export function normalizeMobile(input: string): string | null {
@@ -46,7 +57,7 @@ const uniqueIds = z
   .refine((a) => new Set(a).size === a.length, { error: "Doppelte Auswahl." })
   .transform((a) => [...a].sort());
 
-export const EmployeeInput = z.object({
+const EmployeeFields = {
   firstName: z
     .string()
     .trim()
@@ -57,11 +68,13 @@ export const EmployeeInput = z.object({
     .trim()
     .min(1, { error: "Bitte einen Nachnamen angeben." })
     .max(100, { error: "Höchstens 100 Zeichen." }),
+  // optional since dc6c6578; empty → null, otherwise validated and stored as E.164
   mobile: z
-    .string({ error: "Bitte eine Handynummer angeben." })
+    .string()
     .trim()
-    .min(1, { error: "Bitte eine Handynummer angeben." })
+    .nullish()
     .transform((v, ctx) => {
+      if (!v) return null;
       const n = normalizeMobile(v);
       if (!n) {
         ctx.addIssue({ code: "custom", message: "Keine gültige Handynummer." });
@@ -81,6 +94,7 @@ export const EmployeeInput = z.object({
   isFloater: z.boolean().default(false),
   qualificationIds: uniqueIds,
   systemAccessIds: uniqueIds,
+  locationMode: LocationMode.default("all_except_blocked"),
   locations: z
     .array(EmployeeLocation)
     .max(200)
@@ -88,24 +102,53 @@ export const EmployeeInput = z.object({
     .refine((a) => new Set(a.map((l) => l.locationId)).size === a.length, {
       error: "Jeder Standort nur einmal.",
     })
-    // "not trained + neutral" is the default — not stored.
+    // "not trained + neutral + not released" is the default — not stored.
     .transform((a) =>
       a
-        .filter((l) => l.trained || l.preference !== "neutral")
+        .filter((l) => l.trained || l.preference !== "neutral" || l.released)
+        .map((l) => ({ ...l, released: l.released ?? false }))
         .sort((x, y) => x.locationId.localeCompare(y.locationId)),
     ),
   note: optionalText(2000, "Höchstens 2000 Zeichen."),
-});
+};
+
+const modeFits = (
+  v: { locationMode: LocationMode; locations: EmployeeLocation[] },
+  ctx: z.RefinementCtx,
+) => {
+  if (
+    v.locationMode === "all_except_blocked" &&
+    v.locations.some((l) => l.released)
+  )
+    ctx.addIssue({
+      code: "custom",
+      path: ["locations"],
+      message: "Freigaben gibt es nur bei „nur ausgewählte Standorte“.",
+    });
+  if (
+    v.locationMode === "only_selected" &&
+    v.locations.some((l) => l.preference === "blocked")
+  )
+    ctx.addIssue({
+      code: "custom",
+      path: ["locations"],
+      message: "Bei „nur ausgewählte Standorte“ gibt es keine Sperren.",
+    });
+};
+
+export const EmployeeInput = z.object(EmployeeFields).superRefine(modeFits);
 export type EmployeeInput = z.output<typeof EmployeeInput>;
 export type EmployeeFormInput = z.input<typeof EmployeeInput>;
 
-export const EmployeeUpdate = EmployeeInput.extend({ version: Version });
+export const EmployeeUpdate = z
+  .object({ ...EmployeeFields, version: Version })
+  .superRefine(modeFits);
 
 export const Employee = z.object({
   id: z.uuid(),
   firstName: z.string(),
   lastName: z.string(),
-  mobile: z.string(),
+  mobile: z.string().nullable(),
   email: z.string().nullable(),
   personnelNo: z.string().nullable(),
   contractTypeId: z.uuid(),
@@ -113,6 +156,7 @@ export const Employee = z.object({
   isFloater: z.boolean(),
   qualificationIds: z.array(z.uuid()),
   systemAccessIds: z.array(z.uuid()),
+  locationMode: LocationMode.optional(),
   locations: z.array(EmployeeLocation),
   note: z.string().nullable(),
   active: z.boolean(),
@@ -149,6 +193,20 @@ export function preferenceAt(
     employee.locations.find((l) => l.locationId === locationId)?.preference ??
     "neutral"
   );
+}
+
+/**
+ * May not be planned at the location: a block in "all_except_blocked", or no
+ * release in "only_selected" — also for locations created later (dc6c6578).
+ */
+export function isBlockedAt(
+  employee: Pick<Employee, "locations"> & { locationMode?: LocationMode },
+  locationId: string,
+): boolean {
+  const row = employee.locations.find((l) => l.locationId === locationId);
+  return employee.locationMode === "only_selected"
+    ? !row?.released
+    : row?.preference === "blocked";
 }
 
 const fold = (s: string) =>

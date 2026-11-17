@@ -267,13 +267,15 @@ export const employees = pgTable(
     firstName: text("first_name").notNull(),
     lastName: text("last_name").notNull(),
     personnelNo: text("personnel_no"),
-    mobile: text("mobile").notNull(),
+    mobile: text("mobile"),
     email: text("email"),
     contractTypeId: uuid("contract_type_id")
       .notNull()
       .references(() => contractTypes.id),
     weeklyMinutesOverride: integer("weekly_minutes_override"),
     isFloater: boolean("is_floater").notNull().default(false),
+    // dc6c6578: 'all_except_blocked' (blocks per location) | 'only_selected' (releases per location)
+    locationMode: text("location_mode").notNull().default("all_except_blocked"),
     note: text("note"),
     active: boolean("active").notNull().default(true),
     version: integer("version").notNull().default(1),
@@ -282,6 +284,10 @@ export const employees = pgTable(
   (t) => [
     index("employees_name_idx").on(t.lastName, t.firstName),
     index("employees_contract_type_idx").on(t.contractTypeId),
+    check(
+      "employees_location_mode_check",
+      sql`${t.locationMode} in ('all_except_blocked', 'only_selected')`,
+    ),
   ],
 );
 
@@ -322,6 +328,7 @@ export const employeeLocations = pgTable(
       .references(() => locations.id, { onDelete: "cascade" }),
     trained: boolean("trained").notNull(),
     preference: text("preference").notNull(),
+    released: boolean("released").notNull().default(false),
   },
   (t) => [
     primaryKey({ columns: [t.employeeId, t.locationId] }),

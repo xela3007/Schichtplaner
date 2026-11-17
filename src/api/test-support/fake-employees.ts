@@ -170,7 +170,9 @@ export class InMemoryEmployeeRepository implements EmployeeRepository {
         .filter((l) => !l.active)
         .map((l) => l.id),
     );
-    const kept = before.locations.filter((l) => inactive.has(l.locationId));
+    const kept = before.locations
+      .filter((l) => inactive.has(l.locationId))
+      .map((l) => ({ ...l, released: l.released ?? false }));
     const locations = [...input.locations, ...kept].sort((a, b) =>
       a.locationId.localeCompare(b.locationId),
     );

@@ -11,7 +11,10 @@ import {
   Employee,
   effectiveWeeklyMinutes,
   formatMobile,
+  isBlockedAt,
   isTrainedAt,
+  LOCATION_MODE_LABELS,
+  type LocationMode,
   PREFERENCE_LABELS,
   type Preference,
   preferenceAt,
@@ -64,6 +67,7 @@ const FIELD_LABELS: Record<string, string> = {
   contractTypeId: "Vertragstyp",
   weeklyMinutesOverride: "Abweichende Wochenstunden",
   isFloater: "Springer",
+  locationMode: "Einsatz",
   note: "Bemerkung",
   qualificationIds: "Qualifikationen",
   systemAccessIds: "Systemzugänge",
@@ -88,6 +92,8 @@ function formatValue(field: string, value: unknown, l: Lookup): string {
       return formatHours(Number(value));
     case "isFloater":
       return value ? "ja" : "nein";
+    case "locationMode":
+      return LOCATION_MODE_LABELS[value as LocationMode] ?? String(value);
     case "active":
       return value ? "aktiv" : "ausgeschieden";
     case "qualificationIds":
@@ -104,8 +110,8 @@ function formatValue(field: string, value: unknown, l: Lookup): string {
       return (
         Object.entries(value as Record<string, string>)
           .map(([id, v]) => {
-            const [trained, pref] = v.split("/");
-            return `${nameOf(l.locations, id)}: ${trained === "trained" ? "eingearbeitet" : "nicht eingearbeitet"}, ${PREFERENCE_LABELS[pref as Preference] ?? pref}`;
+            const [trained, pref, released] = v.split("/");
+            return `${nameOf(l.locations, id)}: ${trained === "trained" ? "eingearbeitet" : "nicht eingearbeitet"}, ${PREFERENCE_LABELS[pref as Preference] ?? pref}${released === "released" ? ", freigegeben" : ""}`;
           })
           .join("; ") || "—"
       );
@@ -350,7 +356,9 @@ export function EmployeeDetailPage() {
         <CardContent>
           <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[12rem_1fr]">
             <Row label="Personal-Nr.">{e.personnelNo ?? "—"}</Row>
-            <Row label="Handynummer">{formatMobile(e.mobile)}</Row>
+            <Row label="Handynummer">
+              {e.mobile ? formatMobile(e.mobile) : "–"}
+            </Row>
             <Row label="E-Mail (privat)">{e.email ?? "—"}</Row>
             <Row label="Vertragstyp">
               {ct?.name ?? "—"}
@@ -394,7 +402,11 @@ export function EmployeeDetailPage() {
         <CardHeader>
           <CardTitle>Standorte</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm">
+        <CardContent className="grid gap-3 text-sm">
+          <p>
+            <span className="text-muted-foreground">Einsatz: </span>
+            {LOCATION_MODE_LABELS[e.locationMode ?? "all_except_blocked"]}
+          </p>
           {activeLocations.length === 0 ? (
             <p className="text-muted-foreground">Keine aktiven Standorte.</p>
           ) : (
@@ -419,12 +431,27 @@ export function EmployeeDetailPage() {
                             : "eingearbeitet"
                           : "nicht eingearbeitet"}
                       </span>
-                      {pref !== "neutral" && (
-                        <Pill
-                          variant={pref === "preferred" ? "brand" : "accent"}
-                        >
-                          {PREFERENCE_LABELS[pref]}
-                        </Pill>
+                      {e.locationMode === "only_selected" ? (
+                        <>
+                          {isBlockedAt(e, l.id) ? (
+                            <Pill variant="accent">nicht freigegeben</Pill>
+                          ) : (
+                            <Pill>freigegeben</Pill>
+                          )}
+                          {pref === "preferred" && (
+                            <Pill variant="brand">
+                              {PREFERENCE_LABELS[pref]}
+                            </Pill>
+                          )}
+                        </>
+                      ) : (
+                        pref !== "neutral" && (
+                          <Pill
+                            variant={pref === "preferred" ? "brand" : "accent"}
+                          >
+                            {PREFERENCE_LABELS[pref]}
+                          </Pill>
+                        )
                       )}
                     </span>
                   </li>

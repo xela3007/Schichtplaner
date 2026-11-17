@@ -9,6 +9,7 @@ const PLAIN = [
   "contractTypeId",
   "weeklyMinutesOverride",
   "isFloater",
+  "locationMode",
   "note",
   "qualificationIds",
   "systemAccessIds",
@@ -16,13 +17,13 @@ const PLAIN = [
 
 type Comparable = Omit<EmployeeInput, never> & { active?: boolean };
 
-const locMap = (l: EmployeeInput["locations"]) =>
+const locMap = (l: readonly Employee["locations"][number][]) =>
   Object.fromEntries(
     [...l]
       .sort((a, b) => a.locationId.localeCompare(b.locationId))
       .map((x) => [
         x.locationId,
-        `${x.trained ? "trained" : "untrained"}/${x.preference}`,
+        `${x.trained ? "trained" : "untrained"}/${x.preference}${x.released ? "/released" : ""}`,
       ]),
   );
 
@@ -36,8 +37,10 @@ export function diffEmployee(
 ): Changes {
   const changes: Changes = {};
   for (const f of PLAIN) {
-    const from = before ? (before[f] ?? null) : null;
-    const to = after[f] ?? null;
+    // profiles from before dc6c6578 have no locationMode → the default
+    const dflt = f === "locationMode" ? "all_except_blocked" : null;
+    const from = before ? (before[f] ?? dflt) : null;
+    const to = after[f] ?? dflt;
     if (JSON.stringify(from) !== JSON.stringify(to)) changes[f] = { from, to };
   }
   for (const f of PII_FIELDS) {

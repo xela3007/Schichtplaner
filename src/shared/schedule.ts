@@ -12,7 +12,13 @@ import {
   rulesOn,
   weekdayOf,
 } from "./availability.js";
-import { EmployeeLocation, isTrainedAt, preferenceAt } from "./employees.js";
+import {
+  EmployeeLocation,
+  isBlockedAt,
+  isTrainedAt,
+  LocationMode,
+  preferenceAt,
+} from "./employees.js";
 import { TimeOfDay, TimeRange } from "./locations.js";
 
 // Schichtplan (Teil 1): assignments of employees to shifts, plus the pure
@@ -75,6 +81,7 @@ export const ScheduleEmployee = z.object({
   weeklyTarget: z.number().int(),
   allowedShiftMinutes: z.array(z.number().int()),
   maxDailyMinutes: z.number().int().nullable(),
+  locationMode: LocationMode.optional(),
   locations: z.array(EmployeeLocation),
 });
 export type ScheduleEmployee = z.infer<typeof ScheduleEmployee>;
@@ -285,8 +292,14 @@ export function evaluateCandidate(
       });
   }
 
-  if (preferenceAt(emp, ctx.locationId) === "blocked") {
-    blocks.push({ code: "location_blocked", message: "am Standort gesperrt" });
+  if (isBlockedAt(emp, ctx.locationId)) {
+    blocks.push({
+      code: "location_blocked",
+      message:
+        emp.locationMode === "only_selected"
+          ? "nicht für diesen Standort freigegeben"
+          : "am Standort gesperrt",
+    });
   }
 
   for (const a of mine.filter((x) => x.date === c.date)) {

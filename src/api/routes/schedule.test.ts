@@ -561,3 +561,33 @@ describe("exception list (16bb5be3)", () => {
     ).toBe(403);
   });
 });
+
+describe("location mode only_selected (dc6c6578)", () => {
+  it("exposes the mode in the week and refuses non-released locations", async () => {
+    const profile = (await call("GET", `/employees/${anna}`)).body;
+    const put = await call("PUT", `/employees/${anna}`, {
+      ...profile,
+      locationMode: "only_selected",
+      locations: [
+        {
+          locationId: g5,
+          trained: true,
+          preference: "neutral",
+          released: true,
+        },
+      ],
+    });
+    expect(put.status).toBe(200);
+    const w = await call("GET", `/schedule/week?start=${MON}`);
+    const a = w.body.employees.find((e: { id: string }) => e.id === anna);
+    expect(a.locationMode).toBe("only_selected");
+    expect(a.locations).toEqual([
+      { locationId: g5, trained: true, preference: "neutral", released: true },
+    ]);
+    const refused = await assign();
+    expect(refused.status).toBe(400);
+    expect(
+      refused.body.reasons.map((r: { message: string }) => r.message),
+    ).toContain("nicht für diesen Standort freigegeben");
+  });
+});

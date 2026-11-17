@@ -98,6 +98,7 @@ export class InMemoryScheduleRepository implements ScheduleRepository {
           lastName: e.lastName,
           active: e.active,
           isFloater: e.isFloater,
+          locationMode: e.locationMode ?? "all_except_blocked",
           weeklyTarget: e.weeklyMinutesOverride ?? ct?.weeklyMinutes ?? 0,
           allowedShiftMinutes: ct?.allowedShiftMinutes ?? [],
           maxDailyMinutes: ct?.maxDailyMinutes ?? null,

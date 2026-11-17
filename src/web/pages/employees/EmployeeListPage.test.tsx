@@ -12,9 +12,9 @@ afterEach(() => {
   session.reset();
 });
 
-function setup() {
+function setup(employees: object = f.employees) {
   mockApi({
-    "GET /employees": json(200, f.employees),
+    "GET /employees": json(200, employees),
     "GET /contract-types": json(200, f.contractTypes),
     "GET /qualifications": json(200, f.qualifications),
     "GET /system-accesses": json(200, f.systems),
@@ -80,5 +80,14 @@ describe("EmployeeListPage – read-only", () => {
     expect(await screen.findByText("Müller, Anna")).toBeTruthy();
     expect(screen.queryByText("Mitarbeiter anlegen")).toBeNull();
     expect(screen.queryByText("Auswahllisten verwalten")).toBeNull();
+  });
+
+  it("marks profiles without a mobile number (dc6c6578)", async () => {
+    setup({
+      employees: [{ ...f.anna, mobile: null }, f.ben],
+    });
+    const row = (await screen.findByText("Müller, Anna")).closest("li");
+    expect(row?.textContent).toContain("ohne Mobilnummer");
+    expect(screen.getAllByText("ohne Mobilnummer")).toHaveLength(1);
   });
 });
